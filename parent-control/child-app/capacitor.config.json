@@ -1,0 +1,13 @@
+{
+  "appId": "com.mdmagent.app",
+  "appName": "MDM Agent",
+  "webDir": "www",
+  "server": {
+    "cleartext": true,
+    "allowNavigation": ["*"]
+  },
+  "android": {
+    "allowMixedContent": true,
+    "androidScheme": "http"
+  }
+}

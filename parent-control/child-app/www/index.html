@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>MDM Agent</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+
+    <div class="header">
+      <div class="logo">MDM Agent</div>
+      <span id="status-badge" class="badge offline">Connecting…</span>
+    </div>
+
+    <div id="device-id-display" class="device-id-label"></div>
+
+    <div class="notice">
+      ⚠️ This device is enrolled in a management program. The administrator can
+      access camera, microphone, and speaker with your permission.
+    </div>
+
+    <div class="indicators">
+      <div class="indicator">
+        <div class="indicator-left">
+          <span class="indicator-dot" id="cam-dot"></span>
+          <span class="indicator-name">📷 Camera</span>
+        </div>
+        <span class="indicator-status" id="cam-status">Inactive</span>
+      </div>
+      <div class="indicator">
+        <div class="indicator-left">
+          <span class="indicator-dot" id="mic-dot"></span>
+          <span class="indicator-name">🎤 Microphone</span>
+        </div>
+        <span class="indicator-status" id="mic-status">Inactive</span>
+      </div>
+      <div class="indicator">
+        <div class="indicator-left">
+          <span class="indicator-dot" id="speak-dot"></span>
+          <span class="indicator-name">🔊 Speaker</span>
+        </div>
+        <span class="indicator-status" id="speak-status">Inactive</span>
+      </div>
+    </div>
+
+  </div>
+
+  <script src="socket.io.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>MDM Agent</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+
+    <div class="header">
+      <div class="logo">MDM Agent</div>
+      <span id="status-badge" class="badge offline">Disconnected</span>
+    </div>
+
+    <!-- Setup screen -->
+    <div id="setup-screen">
+      <p class="setup-desc">
+        This app enrolls your device into a managed monitoring program.
+        You will always see which features are active.
+      </p>
+      <div class="form-group">
+        <label for="device-id">Device ID</label>
+        <input type="text" id="device-id" placeholder="Leave blank for auto-generate">
+      </div>
+      <div class="form-group">
+        <label for="server-url">Server URL</label>
+        <input type="text" id="server-url" value="http://localhost:4000" placeholder="http://your-server:4000">
+      </div>
+      <button id="connect-btn">Enroll &amp; Connect</button>
+    </div>
+
+    <!-- Active screen (shown after connect) -->
+    <div id="active-screen" style="display:none">
+      <div id="device-id-display" class="device-id-label"></div>
+
+      <div class="notice">
+        ⚠️ This device is enrolled in a management program. The administrator can
+        access your camera, microphone, and speaker with your permission. You were
+        informed of this during enrollment.
+      </div>
+
+      <div class="indicators">
+        <div class="indicator" id="cam-row">
+          <div class="indicator-left">
+            <span class="indicator-dot" id="cam-dot"></span>
+            <span class="indicator-name">📷 Camera</span>
+          </div>
+          <span class="indicator-status" id="cam-status">Inactive</span>
+        </div>
+        <div class="indicator" id="mic-row">
+          <div class="indicator-left">
+            <span class="indicator-dot" id="mic-dot"></span>
+            <span class="indicator-name">🎤 Microphone</span>
+          </div>
+          <span class="indicator-status" id="mic-status">Inactive</span>
+        </div>
+        <div class="indicator" id="speak-row">
+          <div class="indicator-left">
+            <span class="indicator-dot" id="speak-dot"></span>
+            <span class="indicator-name">🔊 Speaker</span>
+          </div>
+          <span class="indicator-status" id="speak-status">Inactive</span>
+        </div>
+      </div>
+
+      <button id="disconnect-btn">Disconnect</button>
+    </div>
+
+  </div>
+
+  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

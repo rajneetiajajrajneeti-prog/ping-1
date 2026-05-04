@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.npm
+
+# Build outputs
+dist/
+build/
+.gradle/
+*.apk
+*.aab
+*.aar
+*.class
+*.dex
+
+# Android build
+parent-control/child-app/android/.gradle/
+parent-control/child-app/android/app/build/
+parent-control/child-app/android/build/
+parent-control/child-app/android/capacitor-cordova-android-plugins/build/
+parent-control/child-app/android/local.properties
+
+# Environment files (keep .env.example, ignore actual secrets)
+.env
+.env.local
+.env.production
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+*.iml
+.vscode/
