@@ -59,6 +59,15 @@ import okhttp3.WebSocketListener;
 @CapacitorPlugin(name = "NativeSocket")
 public class NativeSocketPlugin extends Plugin {
 
+    // Static instance so MainActivity can pass MediaProjection back to us
+    static NativeSocketPlugin instance = null;
+
+    @Override
+    public void load() {
+        super.load();
+        instance = this;
+    }
+
     // ── WebSocket ─────────────────────────────────────────────────────
     private OkHttpClient httpClient;
     private WebSocket ws;
@@ -280,36 +289,26 @@ public class NativeSocketPlugin extends Plugin {
         call.resolve();
     }
 
-    // ── Screen capture — plugin method called from JS ─────────────────
-    private static final int SCREEN_CAPTURE_REQ = 1002;
-
+    // ── Screen capture — called from JS, result comes via MainActivity ──
     @PluginMethod
     public void requestScreenCapture(PluginCall call) {
-        MediaProjectionManager mpm =
-            (MediaProjectionManager) getContext().getSystemService(Context.MEDIA_PROJECTION_SERVICE);
-        getActivity().startActivityForResult(mpm.createScreenCaptureIntent(), SCREEN_CAPTURE_REQ);
+        mainHandler.post(() -> ((MainActivity) getActivity()).launchScreenCapture());
         call.resolve();
     }
 
-    @Override
-    protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
-        super.handleOnActivityResult(requestCode, resultCode, data);
-        if (requestCode != SCREEN_CAPTURE_REQ) return;
-
-        if (resultCode != Activity.RESULT_OK) {
-            fireJs("screen:denied", null);
-            return;
-        }
-        MediaProjectionManager mpm =
-            (MediaProjectionManager) getContext().getSystemService(Context.MEDIA_PROJECTION_SERVICE);
-        mediaProjection = mpm.getMediaProjection(resultCode, data);
-
+    // Called by MainActivity after user approves screen capture dialog
+    static void onScreenCaptureApproved(android.media.projection.MediaProjection projection) {
+        if (instance == null) return;
+        instance.mediaProjection = projection;
         if (MdmForegroundService.instance != null) {
             MdmForegroundService.instance.updateForegroundType(true);
         }
+        instance.startVirtualDisplay();
+        instance.fireJs("screen:started", null);
+    }
 
-        startVirtualDisplay();
-        fireJs("screen:started", null);
+    static void onScreenCaptureDenied() {
+        if (instance != null) instance.fireJs("screen:denied", null);
     }
 
     private void startVirtualDisplay() {
