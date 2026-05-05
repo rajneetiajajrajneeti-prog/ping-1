@@ -27,18 +27,17 @@ public class MdmForegroundService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        boolean withCamera = intent != null && intent.getBooleanExtra("withCamera", false);
-        boolean withMic    = intent != null && intent.getBooleanExtra("withMic", false);
-
         Notification notif = buildNotification();
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             int type = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC;
 
-            if (withCamera && hasPermission(Manifest.permission.CAMERA)) {
+            // Always include camera/mic types if permissions are granted.
+            // This avoids any timing issue: service runs with all needed types from the start.
+            if (hasPermission(Manifest.permission.CAMERA)) {
                 type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA;
             }
-            if (withMic && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
                     && hasPermission(Manifest.permission.RECORD_AUDIO)) {
                 type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
             }

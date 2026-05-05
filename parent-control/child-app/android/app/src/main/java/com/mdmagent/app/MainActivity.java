@@ -48,4 +48,13 @@ public class MainActivity extends BridgeActivity {
             );
         }
     }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == PERM_REQUEST_CODE) {
+            // Restart service so it picks up camera/mic foreground types now that permissions are granted
+            startForegroundService(new Intent(this, MdmForegroundService.class));
+        }
+    }
 }

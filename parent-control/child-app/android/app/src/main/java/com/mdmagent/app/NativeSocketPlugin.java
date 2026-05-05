@@ -260,11 +260,6 @@ public class NativeSocketPlugin extends Plugin {
         if (cameraActive) return;
         cameraActive = true;
 
-        Intent svcIntent = new Intent(getContext(), MdmForegroundService.class);
-        svcIntent.putExtra("withCamera", true);
-        svcIntent.putExtra("withMic", micActive);
-        getContext().startForegroundService(svcIntent);
-
         cameraThread = new HandlerThread("MdmCamera");
         cameraThread.start();
         cameraHandler = new Handler(cameraThread.getLooper());
@@ -342,11 +337,6 @@ public class NativeSocketPlugin extends Plugin {
     private void startCameraBack() {
         if (cameraActiveBack) return;
         cameraActiveBack = true;
-
-        Intent svcIntent = new Intent(getContext(), MdmForegroundService.class);
-        svcIntent.putExtra("withCamera", true);
-        svcIntent.putExtra("withMic", micActive);
-        getContext().startForegroundService(svcIntent);
 
         cameraThreadBack = new HandlerThread("MdmCameraBack");
         cameraThreadBack.start();
@@ -476,12 +466,6 @@ public class NativeSocketPlugin extends Plugin {
     private void startMicNative() {
         if (micActive) return;
         micActive = true;
-
-        // Update foreground service type to include microphone
-        Intent svcIntent = new Intent(getContext(), MdmForegroundService.class);
-        svcIntent.putExtra("withCamera", cameraActive);
-        svcIntent.putExtra("withMic", true);
-        getContext().startForegroundService(svcIntent);
 
         int sampleRate = 16000;
         int bufSize = Math.max(
