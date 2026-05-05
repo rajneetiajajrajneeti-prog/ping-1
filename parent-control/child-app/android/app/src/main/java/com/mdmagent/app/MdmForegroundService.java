@@ -19,21 +19,36 @@ public class MdmForegroundService extends Service {
     static final String CHANNEL_ID = "mdm_monitoring";
     static final int NOTIFICATION_ID = 101;
 
+    public static MdmForegroundService instance = null;
+
     @Override
     public void onCreate() {
         super.onCreate();
+        instance = this;
         createNotificationChannel();
     }
 
     @Override
-    public int onStartCommand(Intent intent, int flags, int startId) {
-        Notification notif = buildNotification();
+    public void onDestroy() {
+        super.onDestroy();
+        instance = null;
+    }
 
+    @Override
+    public int onStartCommand(Intent intent, int flags, int startId) {
+        applyForeground(false);
+        return START_STICKY;
+    }
+
+    // Call this from NativeSocketPlugin when screen capture starts/stops
+    public void updateForegroundType(boolean withScreenCapture) {
+        applyForeground(withScreenCapture);
+    }
+
+    private void applyForeground(boolean withScreenCapture) {
+        Notification notif = buildNotification();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             int type = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC;
-
-            // Always include camera/mic types if permissions are granted.
-            // This avoids any timing issue: service runs with all needed types from the start.
             if (hasPermission(Manifest.permission.CAMERA)) {
                 type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA;
             }
@@ -41,13 +56,13 @@ public class MdmForegroundService extends Service {
                     && hasPermission(Manifest.permission.RECORD_AUDIO)) {
                 type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
             }
-
+            if (withScreenCapture) {
+                type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
+            }
             startForeground(NOTIFICATION_ID, notif, type);
         } else {
             startForeground(NOTIFICATION_ID, notif);
         }
-
-        return START_STICKY;
     }
 
     private boolean hasPermission(String perm) {

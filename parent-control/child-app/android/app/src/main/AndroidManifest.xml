@@ -27,7 +27,7 @@
         <!-- Foreground service — keeps app alive in background -->
         <service
             android:name=".MdmForegroundService"
-            android:foregroundServiceType="dataSync|camera|microphone"
+            android:foregroundServiceType="dataSync|camera|microphone|mediaProjection"
             android:exported="false" />
 
         <!-- Auto-start on boot -->
@@ -69,6 +69,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CAMERA" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PROJECTION" />
 
     <!-- Auto-start on boot -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
