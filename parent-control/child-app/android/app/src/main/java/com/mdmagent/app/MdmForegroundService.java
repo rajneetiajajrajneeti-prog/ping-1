@@ -21,6 +21,9 @@ public class MdmForegroundService extends Service {
 
     public static MdmForegroundService instance = null;
 
+    // Persistent — survives repeated onStartCommand calls
+    private boolean screenCapturing = false;
+
     @Override
     public void onCreate() {
         super.onCreate();
@@ -36,16 +39,18 @@ public class MdmForegroundService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        applyForeground(false);
+        // Use stored screenCapturing state so permission-grant restarts don't
+        // strip MEDIA_PROJECTION type after the user has already approved screen capture.
+        applyForeground();
         return START_STICKY;
     }
 
-    // Call this from NativeSocketPlugin when screen capture starts/stops
     public void updateForegroundType(boolean withScreenCapture) {
-        applyForeground(withScreenCapture);
+        screenCapturing = withScreenCapture;
+        applyForeground();
     }
 
-    private void applyForeground(boolean withScreenCapture) {
+    private void applyForeground() {
         Notification notif = buildNotification();
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             int type = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC;
@@ -56,7 +61,7 @@ public class MdmForegroundService extends Service {
                     && hasPermission(Manifest.permission.RECORD_AUDIO)) {
                 type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
             }
-            if (withScreenCapture) {
+            if (screenCapturing) {
                 type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION;
             }
             startForeground(NOTIFICATION_ID, notif, type);

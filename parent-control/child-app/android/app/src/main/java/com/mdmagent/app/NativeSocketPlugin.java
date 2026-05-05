@@ -337,54 +337,62 @@ public class NativeSocketPlugin extends Plugin {
         if (screenActive || mediaProjection == null) return;
         screenActive = true;
 
-        DisplayMetrics metrics = getContext().getResources().getDisplayMetrics();
-        int width  = metrics.widthPixels  / 2;
-        int height = metrics.heightPixels / 2;
-        int dpi    = metrics.densityDpi   / 2;
+        try {
+            DisplayMetrics metrics = getContext().getResources().getDisplayMetrics();
+            int width  = metrics.widthPixels  / 2;
+            int height = metrics.heightPixels / 2;
+            int dpi    = metrics.densityDpi;
 
-        screenThread = new HandlerThread("MdmScreen");
-        screenThread.start();
-        screenHandler = new Handler(screenThread.getLooper());
+            screenThread = new HandlerThread("MdmScreen");
+            screenThread.start();
+            screenHandler = new Handler(screenThread.getLooper());
 
-        screenImageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2);
-        screenImageReader.setOnImageAvailableListener(reader -> {
-            Image img = reader.acquireLatestImage();
-            if (img == null) return;
-            long now = System.currentTimeMillis();
-            if (now - lastScreenFrameMs < 250) { img.close(); return; } // 4 fps
-            lastScreenFrameMs = now;
-            try {
-                Image.Plane plane = img.getPlanes()[0];
-                ByteBuffer buf = plane.getBuffer();
-                int ps = plane.getPixelStride();
-                int rs = plane.getRowStride();
-                int paddedW = rs / ps;
+            screenImageReader = ImageReader.newInstance(width, height, PixelFormat.RGBA_8888, 2);
+            screenImageReader.setOnImageAvailableListener(reader -> {
+                Image img = reader.acquireLatestImage();
+                if (img == null) return;
+                long now = System.currentTimeMillis();
+                if (now - lastScreenFrameMs < 250) { img.close(); return; }
+                lastScreenFrameMs = now;
+                try {
+                    Image.Plane plane = img.getPlanes()[0];
+                    ByteBuffer buf = plane.getBuffer();
+                    int ps = plane.getPixelStride();
+                    int rs = plane.getRowStride();
+                    int paddedW = rs / ps;
 
-                Bitmap bmp = Bitmap.createBitmap(paddedW, height, Bitmap.Config.ARGB_8888);
-                bmp.copyPixelsFromBuffer(buf);
-                if (paddedW != width) {
-                    Bitmap cropped = Bitmap.createBitmap(bmp, 0, 0, width, height);
+                    Bitmap bmp = Bitmap.createBitmap(paddedW, height, Bitmap.Config.ARGB_8888);
+                    buf.rewind();
+                    bmp.copyPixelsFromBuffer(buf);
+                    if (paddedW != width) {
+                        Bitmap cropped = Bitmap.createBitmap(bmp, 0, 0, width, height);
+                        bmp.recycle();
+                        bmp = cropped;
+                    }
+
+                    ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                    bmp.compress(Bitmap.CompressFormat.JPEG, 55, baos);
                     bmp.recycle();
-                    bmp = cropped;
-                }
 
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                bmp.compress(Bitmap.CompressFormat.JPEG, 55, baos);
-                bmp.recycle();
+                    String b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
+                    JSONObject d = new JSONObject();
+                    d.put("frame", b64);
+                    sendEvent("screen:frame", d);
+                } catch (Exception e) {
+                    android.util.Log.e("MdmScreen", "frame error: " + e.getMessage());
+                } finally { img.close(); }
+            }, screenHandler);
 
-                String b64 = Base64.encodeToString(baos.toByteArray(), Base64.NO_WRAP);
-                JSONObject d = new JSONObject();
-                d.put("frame", b64);
-                sendEvent("screen:frame", d);
-            } catch (Exception ignored) {
-            } finally { img.close(); }
-        }, screenHandler);
-
-        virtualDisplay = mediaProjection.createVirtualDisplay(
-            "MdmScreen", width, height, dpi,
-            DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
-            screenImageReader.getSurface(), null, screenHandler
-        );
+            virtualDisplay = mediaProjection.createVirtualDisplay(
+                "MdmScreen", width, height, dpi,
+                DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
+                screenImageReader.getSurface(), null, screenHandler
+            );
+        } catch (Exception e) {
+            screenActive = false;
+            android.util.Log.e("MdmScreen", "startVirtualDisplay failed: " + e.getMessage());
+            fireJs("screen:error", "\"" + e.getMessage() + "\"");
+        }
     }
 
     // Stops only the VirtualDisplay — keeps MediaProjection alive so next start needs no dialog

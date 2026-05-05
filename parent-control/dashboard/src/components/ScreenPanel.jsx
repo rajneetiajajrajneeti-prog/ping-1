@@ -53,7 +53,7 @@ export default function ScreenPanel({ frame, isOn, onStart, onStop }) {
 
       {isOn && !frame && (
         <p className="screen-hint">
-          A dialog will appear on the phone — tap <strong>Start now</strong> to allow screen capture.
+          Starting screen capture… (if a dialog appears on the phone, tap <strong>Start now</strong>)
         </p>
       )}
     </div>

