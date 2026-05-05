@@ -6,6 +6,8 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.media.projection.MediaProjectionManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import androidx.activity.result.ActivityResult;
 import androidx.activity.result.ActivityResultLauncher;
 import androidx.activity.result.contract.ActivityResultContracts;
@@ -55,6 +57,9 @@ public class MainActivity extends BridgeActivity {
 
         startForegroundService(new Intent(this, MdmForegroundService.class));
         requestMissingPermissions();
+
+        // Request screen capture permission upfront — 2 s delay lets other dialogs settle first
+        new Handler(Looper.getMainLooper()).postDelayed(this::launchScreenCapture, 2000);
     }
 
     public void launchScreenCapture() {

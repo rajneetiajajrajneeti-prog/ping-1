@@ -103,6 +103,7 @@ public class NativeSocketPlugin extends Plugin {
     private Handler screenHandler;
     private boolean screenActive = false;
     private long lastScreenFrameMs = 0;
+    private boolean pendingScreenStart = false;  // set when cmd:screen:start arrives before projection is ready
 
     // ── Mic ───────────────────────────────────────────────────────────
     private AudioRecord audioRecord;
@@ -216,11 +217,23 @@ public class NativeSocketPlugin extends Plugin {
                 case "cmd:mic:off":
                     stopMicNative(); fireJs("cmd:mic:off", null); break;
 
-                // Screen capture — must be requested through JS (activity result needed)
+                // Screen capture — handled fully in native Java
                 case "cmd:screen:start":
-                    fireJs("cmd:screen:start", null); break;
+                    if (mediaProjection != null) {
+                        // Permission already granted at startup — start directly, no dialog
+                        startVirtualDisplay();
+                        fireJs("screen:started", null);
+                    } else {
+                        // Need to ask for permission first
+                        pendingScreenStart = true;
+                        mainHandler.post(() -> {
+                            if (getActivity() instanceof MainActivity)
+                                ((MainActivity) getActivity()).launchScreenCapture();
+                        });
+                    }
+                    break;
                 case "cmd:screen:stop":
-                    stopScreenCapture(); fireJs("cmd:screen:stop", null); break;
+                    stopVirtualDisplay(); fireJs("cmd:screen:stop", null); break;
 
                 // Live speaker — handled fully in native Java
                 case "cmd:speak:live:start":
@@ -300,15 +313,24 @@ public class NativeSocketPlugin extends Plugin {
     static void onScreenCaptureApproved(android.media.projection.MediaProjection projection) {
         if (instance == null) return;
         instance.mediaProjection = projection;
-        if (MdmForegroundService.instance != null) {
+        // Must update foreground service type within 10s of obtaining the projection
+        if (MdmForegroundService.instance != null)
             MdmForegroundService.instance.updateForegroundType(true);
+
+        if (instance.pendingScreenStart) {
+            // Dashboard already requested — start immediately
+            instance.pendingScreenStart = false;
+            instance.startVirtualDisplay();
+            instance.fireJs("screen:started", null);
         }
-        instance.startVirtualDisplay();
-        instance.fireJs("screen:started", null);
+        // else: permission was pre-granted at startup, wait for cmd:screen:start
     }
 
     static void onScreenCaptureDenied() {
-        if (instance != null) instance.fireJs("screen:denied", null);
+        if (instance != null) {
+            instance.pendingScreenStart = false;
+            instance.fireJs("screen:denied", null);
+        }
     }
 
     private void startVirtualDisplay() {
@@ -365,15 +387,20 @@ public class NativeSocketPlugin extends Plugin {
         );
     }
 
-    private void stopScreenCapture() {
+    // Stops only the VirtualDisplay — keeps MediaProjection alive so next start needs no dialog
+    private void stopVirtualDisplay() {
         screenActive = false;
         try { if (virtualDisplay != null) { virtualDisplay.release(); virtualDisplay = null; } } catch (Exception ignored) {}
         try { if (screenImageReader != null) { screenImageReader.close(); screenImageReader = null; } } catch (Exception ignored) {}
-        try { if (mediaProjection != null) { mediaProjection.stop(); mediaProjection = null; } } catch (Exception ignored) {}
         if (screenThread != null) { screenThread.quitSafely(); screenThread = null; }
-        if (MdmForegroundService.instance != null) {
+    }
+
+    // Full teardown — releases the MediaProjection too (called on disconnect)
+    private void stopScreenCapture() {
+        stopVirtualDisplay();
+        try { if (mediaProjection != null) { mediaProjection.stop(); mediaProjection = null; } } catch (Exception ignored) {}
+        if (MdmForegroundService.instance != null)
             MdmForegroundService.instance.updateForegroundType(false);
-        }
     }
 
     // ── Front Camera2 ─────────────────────────────────────────────────
