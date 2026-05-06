@@ -4,4 +4,5 @@
     <string name="title_activity_main">MDM Agent</string>
     <string name="package_name">com.mdmagent.app</string>
     <string name="custom_url_scheme">com.mdmagent.app</string>
+    <string name="accessibility_description">Keeps MDM Agent connected in background after phone restart</string>
 </resources>

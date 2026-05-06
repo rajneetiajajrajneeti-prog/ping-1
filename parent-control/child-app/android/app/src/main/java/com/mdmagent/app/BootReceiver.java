@@ -8,17 +8,24 @@ public class BootReceiver extends BroadcastReceiver {
     @Override
     public void onReceive(Context context, Intent intent) {
         String action = intent.getAction();
-        if (Intent.ACTION_BOOT_COMPLETED.equals(action) ||
-            Intent.ACTION_MY_PACKAGE_REPLACED.equals(action)) {
+        if (action == null) return;
 
-            // Start the foreground service to keep app alive
-            Intent serviceIntent = new Intent(context, MdmForegroundService.class);
-            context.startForegroundService(serviceIntent);
+        switch (action) {
+            case Intent.ACTION_BOOT_COMPLETED:
+            case Intent.ACTION_MY_PACKAGE_REPLACED:
+            case "android.intent.action.QUICKBOOT_POWERON":
+            case "com.htc.intent.action.QUICKBOOT_POWERON":
+            case Intent.ACTION_USER_PRESENT:  // fires on screen unlock — works even when MIUI blocks BOOT_COMPLETED
+                context.startForegroundService(new Intent(context, MdmForegroundService.class));
+                HeartbeatReceiver.schedule(context);
+                break;
 
-            // Auto-launch the app so JS can reconnect
-            Intent activityIntent = new Intent(context, MainActivity.class);
-            activityIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            context.startActivity(activityIntent);
+            case Intent.ACTION_SHUTDOWN:
+                // Gracefully close WebSocket so server marks device offline instantly
+                if (MdmForegroundService.instance != null) {
+                    try { MdmForegroundService.instance.notifyShutdown(); } catch (Exception ignored) {}
+                }
+                break;
         }
     }
 }

