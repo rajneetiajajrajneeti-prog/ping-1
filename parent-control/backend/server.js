@@ -5,7 +5,6 @@ const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
 
 const app = express();
 const server = http.createServer(app);
@@ -17,7 +16,9 @@ const io = new Server(server, {
 
 app.use(cors());
 app.use(express.json());
-app.use('/media', express.static(path.join(os.homedir(), 'Desktop', 'MDM-Screenshots')));
+const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
+fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+app.use('/media', express.static(UPLOADS_DIR));
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-this-secret-in-production';
 const parentAccounts = [{ email: 'parent@example.com', password: 'changeme123' }];
@@ -25,7 +26,7 @@ const connectedDevices = {};
 const deviceNames = {};
 
 function getScreenshotFolder(deviceId) {
-  const folder = path.join(os.homedir(), 'Desktop', 'MDM-Screenshots', deviceId);
+  const folder = path.join(UPLOADS_DIR, deviceId);
   fs.mkdirSync(folder, { recursive: true });
   return folder;
 }

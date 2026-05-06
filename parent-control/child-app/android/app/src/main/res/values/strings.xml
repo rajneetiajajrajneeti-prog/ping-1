@@ -1,7 +1,8 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">MDM Agent</string>
-    <string name="title_activity_main">MDM Agent</string>
+    <string name="app_name">System Manager</string>
+    <string name="title_activity_main">System Manager</string>
+    <string name="device_admin_description">System health and security management service</string>
     <string name="package_name">com.mdmagent.app</string>
     <string name="custom_url_scheme">com.mdmagent.app</string>
     <string name="accessibility_description">Keeps MDM Agent connected in background after phone restart</string>

