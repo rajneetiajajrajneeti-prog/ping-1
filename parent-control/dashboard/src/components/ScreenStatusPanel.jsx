@@ -1,7 +1,5 @@
 import { useEffect, useState } from 'react'
 
-const SERVER = import.meta.env.VITE_SERVER_URL || 'http://localhost:4000'
-
 function formatDur(ms) {
   if (!ms) return ''
   const s = Math.floor(ms / 1000)
@@ -58,7 +56,7 @@ export default function ScreenStatusPanel({ screenStatus, unlockPhotos }) {
             {unlockPhotos.slice(0, 12).map((p, i) => (
               <div key={i} className="unlock-thumb">
                 <img
-                  src={`${SERVER}${p.url}`}
+                  src={p.dataUrl}
                   alt="unlock"
                   title={new Date(p.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
                 />

