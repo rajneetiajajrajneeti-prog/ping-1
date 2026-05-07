@@ -163,6 +163,7 @@ public class MdmForegroundService extends Service {
         startRecentAppsPolling();
         registerNetworkCallback();
         HeartbeatReceiver.schedule(this);
+        BootJobService.ensureScheduled(this); // persistent JobScheduler fallback for OEM boot blocks
         mainHandler.postDelayed(watchdog, 30_000);
         // Auto-connect with stored credentials (handles boot/restart with no Activity)
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);

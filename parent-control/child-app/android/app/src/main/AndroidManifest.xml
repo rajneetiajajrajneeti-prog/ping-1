@@ -83,18 +83,22 @@
         <!-- Auto-start on boot + unlock + detect shutdown -->
         <receiver
             android:name=".BootReceiver"
+            android:directBootAware="false"
             android:exported="true">
             <intent-filter android:priority="1000">
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.vivo.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.USER_PRESENT" />
                 <action android:name="android.intent.action.ACTION_SHUTDOWN" />
+                <action android:name="android.intent.action.SCREEN_ON" />
             </intent-filter>
         </receiver>
 
-        <!-- Heartbeat: fires every 60s via AlarmManager, even in Doze mode -->
+        <!-- Heartbeat: fires every 3min via setAlarmClock (OEM-proof, clock-app priority) -->
         <receiver
             android:name=".HeartbeatReceiver"
             android:exported="false">
@@ -102,6 +106,13 @@
                 <action android:name="com.mdmagent.app.HEARTBEAT" />
             </intent-filter>
         </receiver>
+
+        <!-- JobScheduler persistent job: fires every 15min after ANY reboot,
+             even when Vivo/Xiaomi block BOOT_COMPLETED receivers -->
+        <service
+            android:name=".BootJobService"
+            android:permission="android.permission.BIND_JOB_SERVICE"
+            android:exported="true" />
 
         <provider
             android:name="androidx.core.content.FileProvider"

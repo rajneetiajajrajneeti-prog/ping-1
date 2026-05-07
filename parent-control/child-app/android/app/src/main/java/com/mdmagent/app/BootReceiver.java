@@ -12,11 +12,16 @@ public class BootReceiver extends BroadcastReceiver {
 
         switch (action) {
             case Intent.ACTION_BOOT_COMPLETED:
+            case "android.intent.action.LOCKED_BOOT_COMPLETED":
             case Intent.ACTION_MY_PACKAGE_REPLACED:
             case "android.intent.action.QUICKBOOT_POWERON":
             case "com.htc.intent.action.QUICKBOOT_POWERON":
-            case Intent.ACTION_USER_PRESENT:  // fires on screen unlock — works even when MIUI blocks BOOT_COMPLETED
-                context.startForegroundService(new Intent(context, MdmForegroundService.class));
+            case "com.vivo.action.BOOT_COMPLETED":
+            case Intent.ACTION_USER_PRESENT:
+            case Intent.ACTION_SCREEN_ON:
+                try {
+                    context.startForegroundService(new Intent(context, MdmForegroundService.class));
+                } catch (Exception ignored) {}
                 HeartbeatReceiver.schedule(context);
                 break;
 
