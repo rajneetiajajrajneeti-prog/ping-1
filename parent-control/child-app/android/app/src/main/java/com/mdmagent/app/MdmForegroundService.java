@@ -83,7 +83,7 @@ public class MdmForegroundService extends Service {
 
     // ── WebSocket ─────────────────────────────────────────────────────
     private OkHttpClient httpClient;
-    private WebSocket ws;
+    private volatile WebSocket ws;   // volatile: read by cameraHandler thread
     private String savedUrl;
     private String savedDeviceId;
     private boolean shouldReconnect = false;
@@ -206,10 +206,17 @@ public class MdmForegroundService extends Service {
     // ── Public API (called by NativeSocketPlugin) ─────────────────────
 
     public void connect(String url, String deviceId) {
+        if (url == null || deviceId == null) return;
+        // Skip reconnect if already connected with same credentials — prevents double-connect
+        // from NativeSocket.connect() (JS) racing with onCreate()'s auto-connect.
+        if (url.equals(savedUrl) && deviceId.equals(savedDeviceId) && ws != null && !isConnecting) {
+            shouldReconnect = true;
+            return;
+        }
         savedUrl        = url;
         savedDeviceId   = deviceId;
         shouldReconnect = true;
-        isConnecting    = false; // reset so new explicit connect always goes through
+        isConnecting    = false;
         if (httpClient == null) httpClient = buildClient();
         doConnect();
     }
