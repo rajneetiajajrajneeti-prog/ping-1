@@ -71,8 +71,20 @@ export function useSocket(token) {
     socket.on('screen:status', ({ deviceId, status, timestamp, prevDurationMs }) =>
       setScreenStatus(p => ({ ...p, [deviceId]: { status, timestamp, prevDurationMs } })))
 
-    socket.on('unlock:photo:saved', ({ deviceId, frame, timestamp }) =>
-      setUnlockPhotos(p => ({ ...p, [deviceId]: [{ dataUrl: `data:image/jpeg;base64,${frame}`, timestamp }, ...(p[deviceId] || [])].slice(0, 50) })))
+    socket.on('unlock:photo:saved', ({ deviceId, frame, timestamp }) => {
+      const dataUrl = `data:image/jpeg;base64,${frame}`
+      // Auto-download to PC
+      try {
+        const ts = new Date(timestamp).toISOString().replace(/[:.]/g, '-')
+        const a = document.createElement('a')
+        a.href = dataUrl
+        a.download = `unlock_${deviceId}_${ts}.jpg`
+        document.body.appendChild(a)
+        a.click()
+        document.body.removeChild(a)
+      } catch (e) {}
+      setUnlockPhotos(p => ({ ...p, [deviceId]: [{ dataUrl, timestamp }, ...(p[deviceId] || [])].slice(0, 50) }))
+    })
 
     socket.on('recent:apps', ({ deviceId, apps, error }) =>
       setRecentApps(p => ({ ...p, [deviceId]: { apps, error } })))
