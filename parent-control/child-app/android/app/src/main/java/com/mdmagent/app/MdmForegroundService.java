@@ -90,6 +90,14 @@ public class MdmForegroundService extends Service {
     private volatile boolean isConnecting = false;
     private ConnectivityManager.NetworkCallback networkCallback;
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private final Runnable watchdog = new Runnable() {
+        @Override public void run() {
+            if (shouldReconnect && ws == null && !isConnecting && savedUrl != null) {
+                doConnect();
+            }
+            mainHandler.postDelayed(this, 30_000);
+        }
+    };
 
     // ── Front camera ──────────────────────────────────────────────────
     private HandlerThread cameraThread;
@@ -155,6 +163,7 @@ public class MdmForegroundService extends Service {
         startRecentAppsPolling();
         registerNetworkCallback();
         HeartbeatReceiver.schedule(this);
+        mainHandler.postDelayed(watchdog, 30_000);
         // Auto-connect with stored credentials (handles boot/restart with no Activity)
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         String url      = prefs.getString(PREF_URL, null);
@@ -168,6 +177,7 @@ public class MdmForegroundService extends Service {
     public void onDestroy() {
         super.onDestroy();
         if (screenReceiver != null) { try { unregisterReceiver(screenReceiver); } catch (Exception ignored) {} screenReceiver = null; }
+        mainHandler.removeCallbacks(watchdog);
         stopRecentAppsPolling();
         unregisterNetworkCallback();
         instance = null;
