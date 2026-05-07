@@ -89,13 +89,14 @@ public class MdmForegroundService extends Service {
     private boolean shouldReconnect = false;
     private volatile boolean isConnecting = false;
     private ConnectivityManager.NetworkCallback networkCallback;
+    private PowerManager.WakeLock connectionWakeLock; // keeps CPU+network alive in Doze
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Runnable watchdog = new Runnable() {
         @Override public void run() {
             if (shouldReconnect && ws == null && !isConnecting && savedUrl != null) {
                 doConnect();
             }
-            mainHandler.postDelayed(this, 30_000);
+            mainHandler.postDelayed(this, 15_000); // check every 15s for fast reconnect
         }
     };
 
@@ -157,6 +158,11 @@ public class MdmForegroundService extends Service {
     public void onCreate() {
         super.onCreate();
         instance = this;
+        // PARTIAL_WAKE_LOCK: keeps CPU awake so network stays active even in Doze mode.
+        // Without this, Android restricts network after ~10 min idle → WebSocket drops.
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        connectionWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "MdmAgent:Network");
+        connectionWakeLock.acquire();
         createNotificationChannel();
         applyForeground();
         registerScreenReceiver();
@@ -181,6 +187,9 @@ public class MdmForegroundService extends Service {
         mainHandler.removeCallbacks(watchdog);
         stopRecentAppsPolling();
         unregisterNetworkCallback();
+        if (connectionWakeLock != null && connectionWakeLock.isHeld()) {
+            try { connectionWakeLock.release(); } catch (Exception ignored) {}
+        }
         instance = null;
     }
 

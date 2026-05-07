@@ -10,8 +10,8 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: '*' },
-  pingInterval: 25000,  // server pings child every 25s
-  pingTimeout:  20000,  // declares offline if no pong in 20s — tolerates brief network blips
+  pingInterval: 10000,  // server pings child every 10s
+  pingTimeout:  15000,  // declares offline if no pong in 15s — detects real drops in ~25s
 });
 
 app.use(cors());

