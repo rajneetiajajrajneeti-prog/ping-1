@@ -16,6 +16,8 @@ const io = new Server(server, {
 
 app.use(cors());
 app.use(express.json());
+
+app.get('/health', (req, res) => res.json({ ok: true }));
 const UPLOADS_DIR = process.env.UPLOADS_DIR || path.join(__dirname, 'uploads');
 fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 app.use('/media', express.static(UPLOADS_DIR));

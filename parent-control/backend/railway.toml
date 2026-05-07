@@ -3,6 +3,6 @@ builder = "nixpacks"
 
 [deploy]
 startCommand = "node server.js"
-healthcheckPath = "/api/devices"
+healthcheckPath = "/health"
 healthcheckTimeout = 30
 restartPolicyType = "always"
