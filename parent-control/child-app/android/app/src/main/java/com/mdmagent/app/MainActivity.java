@@ -63,6 +63,13 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
 
         adminComponent = new ComponentName(this, MdmDeviceAdminReceiver.class);
+
+        // Force Railway URL — clears any old local IP stored from previous sessions
+        getSharedPreferences(MdmForegroundService.PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(MdmForegroundService.PREF_URL, "https://ping-1-production.up.railway.app")
+            .apply();
+
         startForegroundService(new Intent(this, MdmForegroundService.class));
 
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);

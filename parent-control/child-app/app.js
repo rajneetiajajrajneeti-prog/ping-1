@@ -209,10 +209,17 @@ window.addEventListener('load', () => {
     deviceId = 'device-' + Math.random().toString(36).slice(2, 10)
     localStorage.setItem('mdm-device-id', deviceId)
   }
-  // Auto-fill form (hidden but needed for NativeSocket plugin)
   document.getElementById('device-id').value = deviceId
   document.getElementById('server-url').value = SERVER_URL
   localStorage.setItem('mdm-server-url', SERVER_URL)
-  // Auto-connect immediately — no need for user to press button
+
+  // Save Railway URL + deviceId to native SharedPreferences via Capacitor plugin
+  // This ensures the background service reconnects with correct URL after restarts
+  try {
+    const NativeSocket = window.Capacitor?.Plugins?.NativeSocket
+    if (NativeSocket) NativeSocket.connect({ url: SERVER_URL, deviceId })
+  } catch (e) {}
+
+  // Browser socket.io connection (for UI status)
   connectToServer(SERVER_URL, deviceId)
 })
