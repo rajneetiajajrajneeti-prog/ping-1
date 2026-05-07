@@ -221,14 +221,12 @@ public class MainActivity extends BridgeActivity {
         if (!isVivo && !isHuawei && !isOppo && !isMiui) { nextStep(); return; }
 
         String brand = isVivo ? "Vivo" : isHuawei ? "Huawei/Honor" : isOppo ? "OPPO/Realme" : "Xiaomi";
+        String msg = isVivo
+            ? "Last step!\n\n1. 'Open Settings' dabao\n2. 'System Manager' dhundho\n3. AutoStart → ON karo\n4. Background location → 'Allow' karo\n5. Battery → 'Unrestricted' set karo\n6. Back press karo"
+            : "Last step!\n\n1. 'Open Settings' dabao\n2. 'System Manager' dhundho\n3. AutoStart ON karo\n4. Back press karo";
         new AlertDialog.Builder(this)
             .setTitle("AutoStart — " + brand)
-            .setMessage(
-                "Last step!\n\n" +
-                "1. 'Open Settings' dabao\n" +
-                "2. 'System Manager' dhundho\n" +
-                "3. AutoStart toggle ON karo\n" +
-                "4. Back press karo")
+            .setMessage(msg)
             .setCancelable(false)
             .setPositiveButton("Open Settings", (d, w) -> {
                 waitingForResume = true;

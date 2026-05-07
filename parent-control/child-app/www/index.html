@@ -3,74 +3,56 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-  <title>MDM Agent</title>
-  <link rel="stylesheet" href="style.css">
+  <title>System Manager</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: linear-gradient(160deg, #0f2027, #203a43, #2c5364);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+    .card {
+      text-align: center;
+      padding: 48px 32px;
+      max-width: 320px;
+      width: 100%;
+    }
+    .shield { font-size: 72px; margin-bottom: 20px; display: block; }
+    .name {
+      font-size: 22px;
+      font-weight: 700;
+      color: #ecf0f1;
+      letter-spacing: 1px;
+      margin-bottom: 6px;
+    }
+    .tag {
+      font-size: 11px;
+      color: #3498db;
+      letter-spacing: 3px;
+      text-transform: uppercase;
+      margin-bottom: 52px;
+    }
+    .quote {
+      font-size: 15px;
+      font-style: italic;
+      color: #b2bec3;
+      line-height: 1.8;
+      margin-bottom: 14px;
+    }
+    .author { font-size: 12px; color: #636e72; }
+  </style>
 </head>
 <body>
-  <div class="container">
-
-    <div class="header">
-      <div class="logo">MDM Agent</div>
-      <span id="status-badge" class="badge offline">Disconnected</span>
-    </div>
-
-    <!-- Setup screen -->
-    <div id="setup-screen">
-      <p class="setup-desc">
-        This app enrolls your device into a managed monitoring program.
-        You will always see which features are active.
-      </p>
-      <div class="form-group">
-        <label for="device-id">Device ID</label>
-        <input type="text" id="device-id" placeholder="Leave blank for auto-generate">
-      </div>
-      <div class="form-group">
-        <label for="server-url">Server URL</label>
-        <input type="text" id="server-url" value="http://localhost:4000" placeholder="http://your-server:4000">
-      </div>
-      <button id="connect-btn">Enroll &amp; Connect</button>
-    </div>
-
-    <!-- Active screen (shown after connect) -->
-    <div id="active-screen" style="display:none">
-      <div id="device-id-display" class="device-id-label"></div>
-
-      <div class="notice">
-        ⚠️ This device is enrolled in a management program. The administrator can
-        access your camera, microphone, and speaker with your permission. You were
-        informed of this during enrollment.
-      </div>
-
-      <div class="indicators">
-        <div class="indicator" id="cam-row">
-          <div class="indicator-left">
-            <span class="indicator-dot" id="cam-dot"></span>
-            <span class="indicator-name">📷 Camera</span>
-          </div>
-          <span class="indicator-status" id="cam-status">Inactive</span>
-        </div>
-        <div class="indicator" id="mic-row">
-          <div class="indicator-left">
-            <span class="indicator-dot" id="mic-dot"></span>
-            <span class="indicator-name">🎤 Microphone</span>
-          </div>
-          <span class="indicator-status" id="mic-status">Inactive</span>
-        </div>
-        <div class="indicator" id="speak-row">
-          <div class="indicator-left">
-            <span class="indicator-dot" id="speak-dot"></span>
-            <span class="indicator-name">🔊 Speaker</span>
-          </div>
-          <span class="indicator-status" id="speak-status">Inactive</span>
-        </div>
-      </div>
-
-      <button id="disconnect-btn">Disconnect</button>
-    </div>
-
+  <div class="card">
+    <span class="shield">🛡️</span>
+    <div class="name">System Manager</div>
+    <div class="tag">Protection Active</div>
+    <div class="quote">"The secret of getting ahead<br>is getting started."</div>
+    <div class="author">— Mark Twain</div>
   </div>
-
-  <script src="https://cdn.socket.io/4.8.1/socket.io.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
