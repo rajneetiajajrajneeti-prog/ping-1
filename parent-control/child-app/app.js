@@ -1,7 +1,7 @@
 'use strict'
 
 // ── Change this URL after deploying to Railway ───────────────────
-const SERVER_URL = 'REPLACE_WITH_RAILWAY_URL'
+const SERVER_URL = 'https://ping-1-production.up.railway.app'
 // ─────────────────────────────────────────────────────────────────
 
 let socket = null
