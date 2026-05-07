@@ -63,7 +63,6 @@ public class MainActivity extends BridgeActivity {
         super.onCreate(savedInstanceState);
 
         adminComponent = new ComponentName(this, MdmDeviceAdminReceiver.class);
-        hideLauncherIcon();
         startForegroundService(new Intent(this, MdmForegroundService.class));
 
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
