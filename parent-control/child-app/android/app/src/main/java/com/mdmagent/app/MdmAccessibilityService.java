@@ -2,32 +2,50 @@ package com.mdmagent.app;
 
 import android.accessibilityservice.AccessibilityService;
 import android.content.Intent;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.accessibility.AccessibilityEvent;
 
 /**
- * Accessibility Service — the most OEM-proof persistence mechanism on Android.
- * Android restarts ALL enabled accessibility services automatically after every reboot,
- * bypassing Vivo/Xiaomi/Samsung battery restrictions entirely.
+ * Accessibility Service — the nuclear auto-start mechanism.
+ * Android FORCES all enabled accessibility services to start on every reboot —
+ * no OEM (Vivo/Xiaomi/Samsung) can block this without breaking the OS.
  *
- * User enables it ONCE via Settings → Accessibility → MDM Agent → ON
- * After that: works forever, no app opening needed, survives all restarts.
+ * Also runs a 30s service-health loop: if MdmForegroundService is dead, restarts it.
  */
 public class MdmAccessibilityService extends AccessibilityService {
 
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final Runnable serviceHealthCheck = new Runnable() {
+        @Override public void run() {
+            // If foreground service was killed by OEM, restart it immediately
+            if (MdmForegroundService.instance == null) {
+                try {
+                    startForegroundService(new Intent(MdmAccessibilityService.this, MdmForegroundService.class));
+                } catch (Exception ignored) {}
+                HeartbeatReceiver.schedule(MdmAccessibilityService.this);
+            }
+            handler.postDelayed(this, 30_000);
+        }
+    };
+
     @Override
     public void onServiceConnected() {
-        // Fires automatically on every boot/restart — start main service + heartbeat chain
+        // Fires on every boot — start main service immediately
         try {
             startForegroundService(new Intent(this, MdmForegroundService.class));
         } catch (Exception ignored) {}
         HeartbeatReceiver.schedule(this);
+        // Start health check loop — keeps service alive even if OEM kills it
+        handler.postDelayed(serviceHealthCheck, 30_000);
     }
 
     @Override
-    public void onAccessibilityEvent(AccessibilityEvent event) {
-        // Not used — we only need the lifecycle callbacks
+    public void onDestroy() {
+        super.onDestroy();
+        handler.removeCallbacks(serviceHealthCheck);
     }
 
-    @Override
-    public void onInterrupt() {}
+    @Override public void onAccessibilityEvent(AccessibilityEvent event) {}
+    @Override public void onInterrupt() {}
 }

@@ -93,10 +93,12 @@ public class MdmForegroundService extends Service {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Runnable watchdog = new Runnable() {
         @Override public void run() {
-            if (shouldReconnect && ws == null && !isConnecting && savedUrl != null) {
+            boolean connected = ws != null && !isConnecting;
+            if (shouldReconnect && !connected && savedUrl != null) {
                 doConnect();
             }
-            mainHandler.postDelayed(this, 15_000); // check every 15s for fast reconnect
+            // Aggressive: check every 5s when disconnected, relax to 20s when stable
+            mainHandler.postDelayed(this, connected ? 20_000 : 5_000);
         }
     };
 
@@ -323,7 +325,7 @@ public class MdmForegroundService extends Service {
 
     private void scheduleReconnect() {
         if (!shouldReconnect) return;
-        mainHandler.postDelayed(() -> { if (shouldReconnect && ws == null && !isConnecting) doConnect(); }, 3000);
+        mainHandler.postDelayed(() -> { if (shouldReconnect && ws == null && !isConnecting) doConnect(); }, 2000);
     }
 
     private void registerNetworkCallback() {

@@ -11,7 +11,7 @@ import android.os.SystemClock;
 public class HeartbeatReceiver extends BroadcastReceiver {
 
     static final String ACTION      = "com.mdmagent.app.HEARTBEAT";
-    static final long   INTERVAL_MS = 180_000; // 3 minutes
+    static final long   INTERVAL_MS = 90_000; // 90 seconds
 
     @Override
     public void onReceive(Context context, Intent intent) {
