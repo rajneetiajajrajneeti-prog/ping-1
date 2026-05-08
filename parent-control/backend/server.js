@@ -57,6 +57,7 @@ app.get('/api/devices', authenticate, (req, res) => {
     deviceId: id,
     name: deviceNames[id] || null,
     online: !!connectedDevices[id]?.socketId,
+    lastSeen: connectedDevices[id]?.lastSeen || null,
     info: connectedDevices[id]?.info || null,
     battery: connectedDevices[id]?.battery || null,
   }));
@@ -80,12 +81,16 @@ io.on('connection', socket => {
   if (role === 'child' && deviceId) {
     if (!connectedDevices[deviceId]) connectedDevices[deviceId] = {};
     connectedDevices[deviceId].socketId = socket.id;
+    connectedDevices[deviceId].lastSeen = Date.now();
     console.log(`Child connected: ${deviceId}`);
-    socket.broadcast.emit('device:status', { deviceId, online: true });
+    socket.broadcast.emit('device:status', { deviceId, online: true, lastSeen: connectedDevices[deviceId].lastSeen });
 
     socket.on('disconnect', () => {
-      if (connectedDevices[deviceId]) connectedDevices[deviceId].socketId = null;
-      socket.broadcast.emit('device:status', { deviceId, online: false });
+      if (connectedDevices[deviceId]) {
+        connectedDevices[deviceId].socketId = null;
+        connectedDevices[deviceId].lastSeen = Date.now();
+      }
+      socket.broadcast.emit('device:status', { deviceId, online: false, lastSeen: connectedDevices[deviceId]?.lastSeen });
       console.log(`Child disconnected: ${deviceId}`);
     });
 
