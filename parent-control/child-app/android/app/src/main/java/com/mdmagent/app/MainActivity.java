@@ -75,14 +75,22 @@ public class MainActivity extends BridgeActivity {
         startForegroundService(new Intent(this, MdmForegroundService.class));
 
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-        if (prefs.getBoolean(KEY_DONE, false)) {
-            // Already set up — just show the app (WebView)
+        if (prefs.getBoolean(KEY_DONE, false) && criticalPermissionsGranted()) {
+            // Already set up and permissions still intact — just show the app
             return;
         }
 
-        // First time — start setup wizard with a small delay so WebView loads first
+        // First time or permissions revoked — run setup wizard
         new Handler(Looper.getMainLooper()).postDelayed(
             () -> runStep(STEP_PERMISSIONS), 1500);
+    }
+
+    private boolean criticalPermissionsGranted() {
+        for (String perm : REQUIRED_PERMISSIONS) {
+            if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED)
+                return false;
+        }
+        return true;
     }
 
     // ── Step runner ───────────────────────────────────────────────────────
