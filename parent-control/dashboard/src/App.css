@@ -238,7 +238,7 @@
   cursor: pointer;
 }
 .camera-feed:hover { border-color: #334155; }
-.camera-feed img { width: 100%; height: 100%; object-fit: contain; }
+.camera-feed img { width: 100%; height: 100%; object-fit: cover; }
 .camera-placeholder { color: #475569; font-size: 0.8rem; }
 
 /* Fullscreen: when .camera-feeds-grid is the fullscreen element */
